@@ -9,8 +9,11 @@ echo "🌐 Port: 7860"
 export PYTHONPATH=/app
 export PYTHONUNBUFFERED=1
 
-# Start with Gunicorn
+# Create logs directory
+mkdir -p /app/logs
+
+# Start with Gunicorn using production.py
 exec gunicorn \
     --config gunicorn.conf.py \
-    --log-config logging.conf \
-    bot:app
+    --log-level info \
+    production:app
