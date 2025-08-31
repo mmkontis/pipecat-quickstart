@@ -23,7 +23,7 @@ import os
 
 from dotenv import load_dotenv
 from loguru import logger
-from pipecat.frames.frames import LLMRunFrame
+from pipecat.frames.frames import LLMMessagesUpdateFrame
 
 print("🚀 Starting Pipecat bot...")
 print("⏳ Loading models and imports (20 seconds first run only)\n")
@@ -102,7 +102,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         logger.info(f"Client connected")
         # Kick off the conversation.
         messages.append({"role": "system", "content": "Say hello and briefly introduce yourself."})
-        await task.queue_frames([LLMRunFrame()])
+        await task.queue_frames([LLMMessagesUpdateFrame(messages=messages, run_llm=True)])
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
@@ -135,7 +135,25 @@ async def bot(runner_args: RunnerArguments):
     await run_bot(transport, runner_args)
 
 
-if __name__ == "__main__":
-    from pipecat.runner.run import main
+# ASGI app for production deployment
+from pipecat.runner.run import main as _main
 
-    main()
+# Create ASGI app instance for Gunicorn
+app = None
+
+def create_app():
+    """Factory function to create the ASGI app"""
+    global app
+    if app is None:
+        # This creates the FastAPI app internally
+        from pipecat.runner.run import app as fastapi_app
+        app = fastapi_app
+    return app
+
+# For production with multiple processes:
+# Use: gunicorn -w 4 -k uvicorn.workers.UvicornWorker bot:create_app
+# Or: uvicorn bot:create_app --host 0.0.0.0 --port 7860 --workers 4
+
+if __name__ == "__main__":
+    # For development/single process
+    _main()

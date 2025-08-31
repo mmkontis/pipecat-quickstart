@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipecat WebRTC Client</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+        h1 {
+            color: #333;
+            margin: 0 0 10px 0;
+        }
+        .subtitle {
+            color: #666;
+            margin: 0;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin: 30px 0;
+            flex-wrap: wrap;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        .control-label {
+            font-size: 0.9rem;
+            color: #666;
+            font-weight: 500;
+        }
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            min-width: 120px;
+        }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+            transform: translateY(-2px);
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #218838;
+            transform: translateY(-2px);
+        }
+        .status {
+            text-align: center;
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 10px;
+            font-weight: 500;
+        }
+        .status.disconnected {
+            background: #f8f9fa;
+            color: #6c757d;
+            border: 1px solid #dee2e6;
+        }
+        .status.connecting {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .logs {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 30px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-radius: 5px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.9rem;
+        }
+        .log-info { color: #0066cc; }
+        .log-error { color: #cc0000; }
+        .log-success { color: #009900; }
+        .log-warn { color: #ff9900; }
+        .audio-visualizer {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100px;
+            margin: 20px 0;
+        }
+        .waveform {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+        .wave-bar {
+            width: 4px;
+            height: 20px;
+            background: #667eea;
+            border-radius: 2px;
+            transition: height 0.1s;
+        }
+        .wave-bar.active {
+            background: #28a745;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">🎙️</div>
+            <h1>Pipecat WebRTC Client</h1>
+            <p class="subtitle">Connect and speak with your AI bot</p>
+        </div>
+
+        <div id="status" class="status disconnected">
+            Ready to connect
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <div class="control-label">Connection</div>
+                <button id="connectBtn" class="btn-primary">Connect</button>
+            </div>
+            <div class="control-group">
+                <div class="control-label">Microphone</div>
+                <button id="micBtn" class="btn-success" disabled>Mute</button>
+            </div>
+            <div class="control-group">
+                <div class="control-label">Actions</div>
+                <button id="disconnectBtn" class="btn-danger" disabled>Disconnect</button>
+            </div>
+        </div>
+
+        <div class="audio-visualizer">
+            <div id="waveform" class="waveform">
+                <!-- Waveform bars will be generated here -->
+            </div>
+        </div>
+
+        <div class="logs">
+            <div id="logs" class="logs-content">
+                <!-- Logs will appear here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class PipecatWebRTCClient {
+            constructor() {
+                this.peerConnection = null;
+                this.dataChannel = null;
+                this.localStream = null;
+                this.audioContext = null;
+                this.analyser = null;
+                this.isConnected = false;
+                this.isMicEnabled = true;
+
+                this.connectBtn = document.getElementById('connectBtn');
+                this.micBtn = document.getElementById('micBtn');
+                this.disconnectBtn = document.getElementById('disconnectBtn');
+                this.statusDiv = document.getElementById('status');
+                this.logsDiv = document.getElementById('logs');
+                this.waveformDiv = document.getElementById('waveform');
+
+                this.setupEventListeners();
+                this.createWaveformBars();
+                this.log('Client initialized', 'info');
+            }
+
+            setupEventListeners() {
+                this.connectBtn.addEventListener('click', () => this.connect());
+                this.micBtn.addEventListener('click', () => this.toggleMic());
+                this.disconnectBtn.addEventListener('click', () => this.disconnect());
+            }
+
+            createWaveformBars() {
+                for (let i = 0; i < 32; i++) {
+                    const bar = document.createElement('div');
+                    bar.className = 'wave-bar';
+                    this.waveformDiv.appendChild(bar);
+                }
+            }
+
+            async connect() {
+                try {
+                    this.updateStatus('connecting', 'Connecting...');
+                    this.log('Connecting to WebRTC server...', 'info');
+
+                    // Get user media
+                    this.localStream = await navigator.mediaDevices.getUserMedia({
+                        audio: true,
+                        video: false
+                    });
+
+                    // Setup audio visualization
+                    this.setupAudioVisualization();
+
+                    // Create peer connection
+                    this.peerConnection = new RTCPeerConnection({
+                        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                    });
+
+                    // Add local stream
+                    this.localStream.getTracks().forEach(track => {
+                        this.peerConnection.addTrack(track, this.localStream);
+                    });
+
+                    // Setup data channel
+                    this.dataChannel = this.peerConnection.createDataChannel('control');
+                    this.setupDataChannel();
+
+                    // Setup connection event handlers
+                    this.peerConnection.oniceconnectionstatechange = () => {
+                        this.log(`ICE connection state: ${this.peerConnection.iceConnectionState}`, 'info');
+                    };
+
+                    this.peerConnection.onconnectionstatechange = () => {
+                        this.log(`Connection state: ${this.peerConnection.connectionState}`, 'info');
+                        if (this.peerConnection.connectionState === 'connected') {
+                            this.onConnected();
+                        }
+                    };
+
+                    // Create and send offer
+                    const offer = await this.peerConnection.createOffer();
+                    await this.peerConnection.setLocalDescription(offer);
+
+                    // Send offer to server via WebSocket
+                    const ws = new WebSocket('ws://localhost:7860/ws');
+                    ws.onopen = () => {
+                        ws.send(JSON.stringify({
+                            type: 'offer',
+                            sdp: offer.sdp
+                        }));
+                    };
+
+                    ws.onmessage = async (event) => {
+                        const message = JSON.parse(event.data);
+                        if (message.type === 'answer') {
+                            await this.peerConnection.setRemoteDescription({
+                                type: 'answer',
+                                sdp: message.sdp
+                            });
+                        }
+                    };
+
+                    ws.onerror = (error) => {
+                        this.log(`WebSocket error: ${error}`, 'error');
+                        this.updateStatus('error', 'Connection failed');
+                    };
+
+                } catch (error) {
+                    this.log(`Connection error: ${error.message}`, 'error');
+                    this.updateStatus('error', 'Failed to connect');
+                }
+            }
+
+            setupDataChannel() {
+                this.dataChannel.onopen = () => {
+                    this.log('Data channel opened', 'success');
+                };
+
+                this.dataChannel.onmessage = (event) => {
+                    this.log(`Received: ${event.data}`, 'info');
+                };
+
+                this.dataChannel.onclose = () => {
+                    this.log('Data channel closed', 'warn');
+                };
+            }
+
+            setupAudioVisualization() {
+                this.audioContext = new AudioContext();
+                this.analyser = this.audioContext.createAnalyser();
+                this.analyser.fftSize = 256;
+
+                const source = this.audioContext.createMediaStreamSource(this.localStream);
+                source.connect(this.analyser);
+
+                this.updateWaveform();
+            }
+
+            updateWaveform() {
+                if (!this.analyser) return;
+
+                const bufferLength = this.analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                this.analyser.getByteFrequencyData(dataArray);
+
+                const bars = document.querySelectorAll('.wave-bar');
+                for (let i = 0; i < bars.length; i++) {
+                    const value = dataArray[i];
+                    const percent = value / 255;
+                    bars[i].style.height = `${20 + percent * 80}px`;
+                    bars[i].classList.toggle('active', this.isMicEnabled && value > 10);
+                }
+
+                if (this.isConnected) {
+                    requestAnimationFrame(() => this.updateWaveform());
+                }
+            }
+
+            toggleMic() {
+                if (!this.localStream) return;
+
+                this.isMicEnabled = !this.isMicEnabled;
+                this.localStream.getAudioTracks().forEach(track => {
+                    track.enabled = this.isMicEnabled;
+                });
+
+                this.micBtn.textContent = this.isMicEnabled ? 'Mute' : 'Unmute';
+                this.micBtn.className = this.isMicEnabled ? 'btn-success' : 'btn-primary';
+                this.log(`Microphone ${this.isMicEnabled ? 'enabled' : 'disabled'}`, 'info');
+            }
+
+            onConnected() {
+                this.isConnected = true;
+                this.updateStatus('connected', 'Connected to bot');
+                this.connectBtn.disabled = true;
+                this.micBtn.disabled = false;
+                this.disconnectBtn.disabled = false;
+                this.log('Successfully connected to Pipecat bot!', 'success');
+            }
+
+            disconnect() {
+                this.log('Disconnecting...', 'info');
+
+                if (this.dataChannel) {
+                    this.dataChannel.close();
+                }
+
+                if (this.peerConnection) {
+                    this.peerConnection.close();
+                }
+
+                if (this.localStream) {
+                    this.localStream.getTracks().forEach(track => track.stop());
+                }
+
+                if (this.audioContext) {
+                    this.audioContext.close();
+                }
+
+                this.isConnected = false;
+                this.updateStatus('disconnected', 'Disconnected');
+                this.connectBtn.disabled = false;
+                this.micBtn.disabled = true;
+                this.disconnectBtn.disabled = true;
+                this.log('Disconnected from bot', 'warn');
+            }
+
+            updateStatus(type, message) {
+                this.statusDiv.className = `status ${type}`;
+                this.statusDiv.textContent = message;
+            }
+
+            log(message, type = 'info') {
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = document.createElement('div');
+                logEntry.className = `log-entry log-${type}`;
+                logEntry.textContent = `[${timestamp}] ${message}`;
+                this.logsDiv.appendChild(logEntry);
+                this.logsDiv.scrollTop = this.logsDiv.scrollHeight;
+            }
+        }
+
+        // Initialize client when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new PipecatWebRTCClient();
+        });
+    </script>
+</body>
+</html>

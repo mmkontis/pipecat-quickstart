@@ -1,0 +1,52 @@
+# Sevalla deployment configuration for Pipecat Bot
+# https://docs.sevalla.com/deployment/configuration
+
+# Build settings
+build:
+  dockerfile: Dockerfile
+  context: .
+
+# Runtime settings
+runtime:
+  # Use Python runtime
+  type: python
+  version: "3.13"
+
+# Environment variables
+environment:
+  - name: PYTHONPATH
+    value: "/app"
+  - name: PYTHONUNBUFFERED
+    value: "1"
+
+# Secrets (set these in Sevalla dashboard)
+# DEEPGRAM_API_KEY
+# OPENAI_API_KEY
+# CARTESIA_API_KEY
+
+# Health check
+healthcheck:
+  path: "/api/offer"
+  interval: 30s
+  timeout: 10s
+  retries: 3
+
+# Resource allocation
+resources:
+  cpu: "2"
+  memory: "4GB"
+
+# Scaling (adjust based on load)
+scaling:
+  min_instances: 1
+  max_instances: 5
+  target_cpu_utilization: 70
+
+# Domains and routing
+routes:
+  - path: "/"
+    port: 7860
+  - path: "/client"
+    port: 7860
+  - path: "/api/*"
+    port: 7860
