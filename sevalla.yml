@@ -8,9 +8,7 @@ build:
 
 # Runtime settings
 runtime:
-  # Use Python runtime
-  type: python
-  version: "3.13"
+  type: docker
 
 # Environment variables
 environment:
@@ -18,29 +16,38 @@ environment:
     value: "/app"
   - name: PYTHONUNBUFFERED
     value: "1"
+  - name: WORKERS
+    value: "2"
 
-# Secrets (set these in Sevalla dashboard)
+# Secrets (configure these in Sevalla dashboard)
 # DEEPGRAM_API_KEY
 # OPENAI_API_KEY
 # CARTESIA_API_KEY
 
 # Health check
 healthcheck:
-  path: "/api/offer"
+  path: "/health"
   interval: 30s
   timeout: 10s
+  start_period: 60s
   retries: 3
 
-# Resource allocation
+# Resource allocation (adjust based on load)
 resources:
   cpu: "2"
   memory: "4GB"
 
-# Scaling (adjust based on load)
+# Scaling configuration
 scaling:
   min_instances: 1
-  max_instances: 5
+  max_instances: 3
   target_cpu_utilization: 70
+  target_memory_utilization: 80
+
+# Port configuration
+ports:
+  - port: 7860
+    protocol: http
 
 # Domains and routing
 routes:
@@ -49,4 +56,6 @@ routes:
   - path: "/client"
     port: 7860
   - path: "/api/*"
+    port: 7860
+  - path: "/health"
     port: 7860
