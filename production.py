@@ -5,7 +5,7 @@ Minimal Production ASGI app for testing deployment.
 
 import os
 from fastapi import FastAPI, Request
-from fastapi.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Setup FastAPI app
 app = FastAPI(title="Pipecat Bot Production", version="1.0.0")
