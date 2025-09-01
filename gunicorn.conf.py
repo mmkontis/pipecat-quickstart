@@ -26,7 +26,7 @@ proc_name = "pipecat_bot"
 
 # Server mechanics
 preload_app = False  # Don't preload for better isolation
-pidfile = "/tmp/gunicorn.pid"
+# pidfile = "/tmp/gunicorn.pid"  # Disabled for container compatibility
 user = None
 group = None
 tmp_upload_dir = None

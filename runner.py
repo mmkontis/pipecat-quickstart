@@ -2,7 +2,8 @@
 """
 Pipecat Development Runner
 
-A unified runner for building voice AI bots with Daily, WebRTC, and telephony transports.
+A unified runner for building voice AI bots with Daily as the primary transport.
+Also supports WebRTC and telephony transports for advanced use cases.
 This runner provides infrastructure setup, connection management, and transport abstraction.
 
 Usage:
@@ -11,7 +12,7 @@ Usage:
 Options:
   --host TEXT          Server host address (default: localhost)
   --port INTEGER       Server port (default: 7860)
-  -t, --transport      Transport type: daily, webrtc, twilio, telnyx, plivo (default: webrtc)
+  -t, --transport      Transport type: daily, webrtc, twilio, telnyx, plivo (default: daily)
   -x, --proxy TEXT     Public proxy hostname for telephony webhooks (required for telephony)
   --esp32              Enable SDP munging for ESP32 WebRTC compatibility
   -d, --direct         Connect directly to Daily room for testing
@@ -20,6 +21,7 @@ Options:
 
 import asyncio
 import importlib
+import importlib.util
 import inspect
 import os
 import sys
@@ -76,7 +78,7 @@ class PipecatRunner:
         self,
         host: str = "localhost",
         port: int = 7860,
-        transport: str = "webrtc",
+        transport: str = "daily",
         proxy: Optional[str] = None,
         esp32: bool = False,
         direct: bool = False,
@@ -118,10 +120,10 @@ class PipecatRunner:
         @self.app.get("/", response_class=HTMLResponse)
         async def root(request: Request):
             """Serve the main interface."""
-            if self.transport == "webrtc":
+            if self.transport == "daily":
+                return self.templates.TemplateResponse("index.html", {"request": request})
+            elif self.transport == "webrtc":
                 return self.templates.TemplateResponse("webrtc_client.html", {"request": request})
-            elif self.transport == "daily":
-                return self.templates.TemplateResponse("daily_client.html", {"request": request})
             else:
                 return self.templates.TemplateResponse("index.html", {"request": request})
 
@@ -151,12 +153,8 @@ class PipecatRunner:
 
     def _setup_daily_routes(self):
         """Setup Daily-specific routes."""
-        try:
-            from daily import RoomService
-            from daily.room import RoomProperties
-        except ImportError:
-            logger.error("Daily SDK not installed. Install with: pip install daily-python")
-            return
+        # We'll use HTTP requests to Daily REST API instead of SDK
+        import requests
 
         @self.app.post("/start")
         async def start_daily_session(request: Request):
@@ -171,20 +169,76 @@ class PipecatRunner:
                 if not api_key:
                     raise HTTPException(status_code=500, detail="DAILY_API_KEY not set")
 
-                room_service = RoomService(api_key=api_key)
-
                 if create_room:
-                    room_properties_obj = RoomProperties(**room_properties)
-                    room = room_service.create_room(properties=room_properties_obj)
-                    room_url = room.url
-                    token = room_service.get_token(room_url, "Pipecat Bot")
+                    # Create room via Daily REST API
+                    room_response = requests.post(
+                        "https://api.daily.co/v1/rooms",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "properties": {
+                                "enable_chat": room_properties.get("enable_chat", True),
+                                "enable_screenshare": room_properties.get("enable_screenshare", False)
+                            }
+                        }
+                    )
+                    
+                    if room_response.status_code != 200:
+                        raise HTTPException(status_code=500, detail=f"Failed to create room: {room_response.text}")
+                    
+                    room_data = room_response.json()
+                    room_url = room_data["url"]
+                    
+                    # Create token for the room
+                    token_response = requests.post(
+                        "https://api.daily.co/v1/meeting-tokens",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "properties": {
+                                "room_name": room_data["name"],
+                                "user_name": "Pipecat Bot"
+                            }
+                        }
+                    )
+                    
+                    if token_response.status_code != 200:
+                        raise HTTPException(status_code=500, detail=f"Failed to create token: {token_response.text}")
+                    
+                    token = token_response.json()["token"]
                 else:
                     # Use existing room
                     sample_room = os.getenv("DAILY_SAMPLE_ROOM_URL")
                     if not sample_room:
                         raise HTTPException(status_code=400, detail="No room URL provided")
                     room_url = sample_room
-                    token = room_service.get_token(room_url, "Pipecat Bot")
+                    
+                    # Extract room name from URL
+                    room_name = room_url.split("/")[-1]
+                    
+                    # Create token for existing room
+                    token_response = requests.post(
+                        "https://api.daily.co/v1/meeting-tokens",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "properties": {
+                                "room_name": room_name,
+                                "user_name": "Pipecat Bot"
+                            }
+                        }
+                    )
+                    
+                    if token_response.status_code != 200:
+                        raise HTTPException(status_code=500, detail=f"Failed to create token: {token_response.text}")
+                    
+                    token = token_response.json()["token"]
 
                 # Spawn bot in background
                 task_id = f"daily_{len(self.active_tasks)}"
@@ -194,16 +248,17 @@ class PipecatRunner:
                             room_url=room_url,
                             token=token,
                             body=body,
-                            handle_sigint=False,
                         ),
                         task_id
                     )
                 )
                 self.active_tasks[task_id] = task
 
+                # Create clickable room link with token
+                clickable_room_link = f"{room_url}?t={token}"
+                
                 return {
-                    "dailyRoom": room_url,
-                    "dailyToken": token,
+                    "clickable_room_link": clickable_room_link
                 }
 
             except Exception as e:
@@ -302,7 +357,7 @@ class PipecatRunner:
 @click.command()
 @click.option("--host", default="localhost", help="Server host address")
 @click.option("--port", default=7860, type=int, help="Server port")
-@click.option("-t", "--transport", default="webrtc",
+@click.option("-t", "--transport", default="daily",
               type=click.Choice(["webrtc", "daily", "twilio", "telnyx", "plivo"]),
               help="Transport type")
 @click.option("-x", "--proxy", help="Public proxy hostname for telephony webhooks")

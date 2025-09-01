@@ -1,0 +1,11 @@
+{
+    "python.pythonPath": "/Users/minasmarioskontis/Projects/pp1/.venv/bin/python",
+    "python.defaultInterpreterPath": "/Users/minasmarioskontis/Projects/pp1/.venv/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true,
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.extraPaths": [
+        "/Users/minasmarioskontis/Projects/pp1/.venv/lib/python3.13/site-packages"
+    ]
+}
