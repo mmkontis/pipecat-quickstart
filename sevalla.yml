@@ -18,6 +18,8 @@ environment:
     value: "1"
   - name: WORKERS
     value: "2"
+  - name: TRANSPORT
+    value: "daily"  # Change to "webrtc" to enable WebRTC transport
 
 # Secrets (configure these in Sevalla dashboard)
 # DEEPGRAM_API_KEY
@@ -31,10 +33,6 @@ healthcheck:
   timeout: 5s
   start_period: 30s
   retries: 3
-
-# WebRTC configuration
-webrtc:
-  enabled: true
 
 # Resource allocation (adjust based on load)
 resources:

@@ -39,5 +39,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
 
-# Start the application with WebRTC transport for testing
-CMD ["python", "runner.py", "--host", "0.0.0.0", "--transport", "webrtc"]
+# Start the application with correct host binding for Sevalla
+# Use environment variable to choose transport: TRANSPORT=webrtc or TRANSPORT=daily
+CMD ["sh", "-c", "python runner.py --host 0.0.0.0 --transport ${TRANSPORT:-daily}"]

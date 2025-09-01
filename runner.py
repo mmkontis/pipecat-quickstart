@@ -338,19 +338,6 @@ class PipecatRunner:
         # Check required environment variables
         self._check_environment_variables()
 
-        # Add WebRTC test endpoint if using WebRTC transport
-        if self.transport == "webrtc":
-            print("🔧 Adding WebRTC test endpoint at /webrtc-test")
-            @self.app.post("/webrtc-test")
-            async def webrtc_test():
-                """Test endpoint for WebRTC connections"""
-                return {
-                    "message": "WebRTC transport is active",
-                    "transport": "webrtc",
-                    "status": "ready",
-                    "instructions": "Use WebRTC client to connect to ws://your-host:port/ws"
-                }
-
         # Run the server
         uvicorn.run(
             self.app,
