@@ -24,6 +24,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Install the application as a package
+RUN pip install -e .
+
+# Make scripts executable
+RUN chmod +x /app/start.sh
+
 # Create logs directory
 RUN mkdir -p /app/logs
 

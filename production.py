@@ -52,7 +52,8 @@ async def handle_offer(request: Request):
     except Exception as e:
         return {"error": str(e)}
 
-if __name__ == "__main__":
+def main():
+    """Main entry point for the application."""
     import uvicorn
     uvicorn.run(
         "production:app",
@@ -61,3 +62,6 @@ if __name__ == "__main__":
         workers=2,
         log_level="info"
     )
+
+if __name__ == "__main__":
+    main()

@@ -64,7 +64,7 @@ except ImportError:
     logger.warning("WebRTC transport not available. Install with: pip install pipecat-ai[webrtc]")
 
 try:
-    from pipecat.transports.network.fastapi_websocket import FastAPIWebSocketTransport
+    from pipecat.transports.network.fastapi_websocket import FastAPIWebsocketTransport
     TELEPHONY_AVAILABLE = True
 except ImportError:
     TELEPHONY_AVAILABLE = False

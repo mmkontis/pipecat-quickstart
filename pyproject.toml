@@ -3,6 +3,9 @@ name = "pipecat-quickstart"
 version = "0.1.0"
 description = "Quickstart example for building voice AI bots with Pipecat"
 requires-python = ">=3.10"
+
+[project.scripts]
+pipecat-quickstart = "production:main"
 dependencies = [
     "gunicorn>=23.0.0",
     "pipecat-ai[cartesia,daily,deepgram,google,heygen,openai,runner,silero,webrtc,websocket]>=0.0.79",
