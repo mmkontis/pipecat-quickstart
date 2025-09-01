@@ -32,6 +32,10 @@ healthcheck:
   start_period: 30s
   retries: 3
 
+# WebRTC configuration
+webrtc:
+  enabled: true
+
 # Resource allocation (adjust based on load)
 resources:
   cpu: "2"
