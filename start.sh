@@ -12,8 +12,10 @@ export PYTHONUNBUFFERED=1
 # Create logs directory (skip if read-only)
 mkdir -p /app/logs 2>/dev/null || mkdir -p ./logs 2>/dev/null || true
 
-# Start with Gunicorn using production.py
-exec gunicorn \
-    --config gunicorn.conf.py \
-    --log-level info \
-    production:app
+# Start with uvicorn directly for simpler deployment
+exec uvicorn \
+    production:app \
+    --host 0.0.0.0 \
+    --port 7860 \
+    --workers 1 \
+    --log-level info

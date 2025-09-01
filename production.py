@@ -13,10 +13,19 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
 
-# Import our bot functions
-from bot import run_bot, bot as bot_function
-from pipecat.runner.utils import create_transport
-from pipecat.runner.types import RunnerArguments, DailyRunnerArguments
+# Import our bot functions (with error handling)
+try:
+    from bot import run_bot, bot as bot_function
+    from pipecat.runner.utils import create_transport
+    from pipecat.runner.types import RunnerArguments, DailyRunnerArguments
+    BOT_IMPORTS_SUCCESSFUL = True
+except ImportError as e:
+    print(f"⚠️  Warning: Bot imports failed: {e}")
+    BOT_IMPORTS_SUCCESSFUL = False
+    # Create dummy objects to avoid crashes
+    bot_function = None
+    RunnerArguments = object
+    DailyRunnerArguments = object
 
 # Setup FastAPI app
 app = FastAPI(title="Pipecat Bot Production", version="1.0.0")
@@ -40,7 +49,13 @@ async def client(request: Request):
 async def health():
     """Health check endpoint."""
     print("🏥 Health check requested")
-    return {"status": "healthy", "mode": "production", "timestamp": "2025-09-01"}
+    return {"status": "healthy", "mode": "production", "timestamp": "2025-09-01", "bot_imports": BOT_IMPORTS_SUCCESSFUL}
+
+@app.get("/ping")
+async def ping():
+    """Simple ping endpoint to test basic connectivity."""
+    print("🏓 Ping received")
+    return {"pong": True, "timestamp": "2025-09-01"}
 
 @app.post("/api/offer")
 async def handle_offer(request: Request):
@@ -154,12 +169,15 @@ async def start_daily_session(request: Request):
             token = token_response.json()["token"]
 
         # Spawn bot in background (simplified for production)
-        print("🤖 Spawning bot in background...")
-        asyncio.create_task(spawn_bot_async(DailyRunnerArguments(
-            room_url=room_url,
-            token=token,
-            body=body,
-        )))
+        if BOT_IMPORTS_SUCCESSFUL and bot_function:
+            print("🤖 Spawning bot in background...")
+            asyncio.create_task(spawn_bot_async(DailyRunnerArguments(
+                room_url=room_url,
+                token=token,
+                body=body,
+            )))
+        else:
+            print("⚠️  Bot spawning skipped - imports not available")
 
         # Create clickable room link with token
         clickable_room_link = f"{room_url}?t={token}"
