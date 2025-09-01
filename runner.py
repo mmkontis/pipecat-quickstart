@@ -76,7 +76,7 @@ class PipecatRunner:
 
     def __init__(
         self,
-        host: str = "localhost",
+        host: str = "0.0.0.0",
         port: int = 7860,
         transport: str = "daily",
         proxy: Optional[str] = None,
@@ -312,6 +312,11 @@ class PipecatRunner:
 
     def run(self):
         """Run the development runner."""
+        # Debug environment variables for Sevalla
+        import os
+        logger.info(f"🔍 Environment debug - PORT: {os.getenv('PORT', 'not set')}")
+        logger.info(f"🔍 Environment debug - HOST: {os.getenv('HOST', 'not set')}")
+        logger.info(f"🔍 Runner config - host: {self.host}, port: {self.port}")
         logger.info(f"Starting Pipecat Runner on {self.host}:{self.port}")
 
         # Check transport availability
@@ -358,7 +363,7 @@ class PipecatRunner:
 
 
 @click.command()
-@click.option("--host", default="localhost", help="Server host address")
+@click.option("--host", default="0.0.0.0", help="Server host address")
 @click.option("--port", default=7860, type=int, help="Server port")
 @click.option("-t", "--transport", default="daily",
               type=click.Choice(["webrtc", "daily", "twilio", "telnyx", "plivo"]),
