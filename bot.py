@@ -60,8 +60,12 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.heygen.video import HeyGenVideoService
 from pipecat.services.heygen.api import NewSessionRequest
 from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.transports.base_transport import BaseTransport
+from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.services.daily import DailyParams
+
+
+# Google TTS import (commented out for lower latency)
+# from pipecat.services.google.tts import GoogleHttpTTSService, Language
 
 logger.info("✅ All components loaded successfully!")
 
@@ -90,76 +94,85 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
 
     stt = DeepgramSTTService(api_key=deepgram_key)
 
+    # Use Cartesia for lower latency - Google TTS adds significant delay
     tts = CartesiaTTSService(
         api_key=cartesia_key,
         voice_id="71a7ad14-091c-4e8e-a314-022ece01c121",  # British Reading Lady
     )
+    
+    # Google TTS alternative (higher latency):
+    # tts = GoogleHttpTTSService(
+    #     credentials=os.getenv("GOOGLE_TEST_CREDENTIALS"),
+    #     voice_id="en-US-Chirp3-HD-Charon",
+    #     params=GoogleHttpTTSService.InputParams(
+    #         language=Language.EN_US
+    #     )
+    # )
 
     llm = OpenAILLMService(api_key=openai_key)
 
-    # Create aiohttp session for HeyGen
-    session = aiohttp.ClientSession()
-    
-    # Configure HeyGen video service
-    heygen = HeyGenVideoService(
-        api_key=heygen_key,
-        session=session,
-        session_request=NewSessionRequest(
-            avatar_id="Katya_Chair_Sitting_public"  # Default public avatar
-        ),
-    )
+    # Create aiohttp session for HeyGen with optimized timeouts
+    timeout = aiohttp.ClientTimeout(total=30, connect=10)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        # Configure HeyGen video service with optimizations
+        heygen = HeyGenVideoService(
+            api_key=heygen_key,
+            session=session,
+            session_request=NewSessionRequest(
+                avatar_id="Katya_Chair_Sitting_public"  # Default public avatar
+            ),
+        )   
 
-    messages: List[ChatCompletionMessageParam] = [
-        {
-            "role": "system",
-            "content": "You are a friendly AI assistant with a visual avatar. Respond naturally and keep your answers conversational.",
-        },
-    ]
-
-    context = OpenAILLMContext(messages)
-    context_aggregator = llm.create_context_aggregator(context)
-
-    rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
-
-    pipeline = Pipeline(
-        [
-            transport.input(),  # Transport user input
-            rtvi,  # RTVI processor
-            stt,
-            context_aggregator.user(),  # User responses
-            llm,  # LLM
-            tts,  # TTS
-            heygen,  # HeyGen avatar video generation
-            transport.output(),  # Transport bot output
-            context_aggregator.assistant(),  # Assistant spoken responses
+        messages: List[ChatCompletionMessageParam] = [
+            {
+                "role": "system",
+                "content": "You are a friendly AI assistant with a visual avatar. Respond naturally and keep your answers conversational.",
+            },
         ]
-    )
 
-    task = PipelineTask(
-        pipeline,
-        params=PipelineParams(
-            enable_metrics=True,
-            enable_usage_metrics=True,
-        ),
-        observers=[RTVIObserver(rtvi)],
-    )
+        context = OpenAILLMContext(messages)
+        context_aggregator = llm.create_context_aggregator(context)
 
-    @transport.event_handler("on_client_connected")
-    async def on_client_connected(transport, client):
-        logger.info(f"Client connected")
-        # Kick off the conversation.
-        messages.append({"role": "system", "content": "Say hello and briefly introduce yourself."})
-        await task.queue_frames([LLMMessagesUpdateFrame(messages=cast(list, messages), run_llm=True)])
+        rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
 
-    @transport.event_handler("on_client_disconnected")
-    async def on_client_disconnected(transport, client):
-        logger.info(f"Client disconnected")
-        await session.close()  # Clean up HeyGen session
-        await task.cancel()
+        pipeline = Pipeline(
+            [
+                transport.input(),  # Transport user input
+                rtvi,  # RTVI processor
+                stt,
+                context_aggregator.user(),  # User responses
+                llm,  # LLM
+                tts,  # TTS
+                heygen,  # HeyGen avatar video generation
+                transport.output(),  # Transport bot output
+                context_aggregator.assistant(),  # Assistant spoken responses
+            ]
+        )
 
-    runner = PipelineRunner(handle_sigint=runner_args.handle_sigint)
+        task = PipelineTask(
+            pipeline,
+            params=PipelineParams(
+                enable_metrics=True,
+                enable_usage_metrics=True,
+            ),
+            observers=[RTVIObserver(rtvi)],
+        )
 
-    await runner.run(task)
+        @transport.event_handler("on_client_connected")
+        async def on_client_connected(transport, client):
+            logger.info(f"Client connected")
+            # Kick off the conversation.
+            messages.append({"role": "system", "content": "Say hello and briefly introduce yourself."})
+            await task.queue_frames([LLMMessagesUpdateFrame(messages=cast(list, messages), run_llm=True)])
+
+        @transport.event_handler("on_client_disconnected")
+        async def on_client_disconnected(transport, client):
+            logger.info(f"Client disconnected")
+            await task.cancel()
+
+        runner = PipelineRunner(handle_sigint=runner_args.handle_sigint)
+
+        await runner.run(task)
 
 
 async def bot(runner_args: RunnerArguments):
@@ -172,10 +185,21 @@ async def bot(runner_args: RunnerArguments):
             audio_out_enabled=True,
             video_out_enabled=True,  # Enable video output for avatar
             video_out_is_live=True,  # Real-time video streaming
-            video_out_width=360,
-            video_out_height=240,
-            audio_out_sample_rate=12000,
+            video_out_width=1280,  # Reduced for better performance
+            video_out_height=720,
+            # audio_out_sample_rate=16000,  # Standard rate for better compatibility
+            camera_out_bitrate=8000,
+
             vad_analyzer=SileroVADAnalyzer(),
+        ),
+          "webrtc": lambda: TransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            vad_analyzer=SileroVADAnalyzer(),
+            video_out_enabled=True,  # Enable video output for avatar
+            video_out_is_live=True,  # Real-time video streaming
+            video_out_width=1280,  # Reduced for better performance
+            video_out_height=720,
         ),
     }
 

@@ -287,6 +287,9 @@ class PipecatRunner:
 
             # Import the bot function from bot.py
             spec = importlib.util.spec_from_file_location("bot_module", "bot.py")
+            if spec is None:
+                logger.error("Could not find bot.py file")
+                return
             bot_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(bot_module)
 
