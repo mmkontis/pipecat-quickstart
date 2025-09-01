@@ -9,7 +9,6 @@ build:
 # Runtime settings
 runtime:
   type: docker
-  command: ["./start.sh"]
 
 # Environment variables
 environment:
