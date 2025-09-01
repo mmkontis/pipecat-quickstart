@@ -340,8 +340,8 @@ async def bot(runner_args: RunnerArguments):
             video_out_is_live=True,  # Real-time video streaming
             video_out_width=1280,  # Reduced for better performance
             video_out_height=720,
-            audio_out_sample_rate=16000,  # Standard rate for better compatibility
-            camera_out_bitrate=8000,
+            # audio_out_sample_rate=16000,  # Standard rate for better compatibility
+            # camera_out_bitrate=8000,
 
             vad_analyzer=SileroVADAnalyzer(),
         ),
