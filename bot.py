@@ -117,6 +117,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         # Configure HeyGen video service with optimizations
         heygen = HeyGenVideoService(
             api_key=heygen_key,
+            video_encoding="H264",
             session=session,
             session_request=NewSessionRequest(
                 avatar_id="Katya_Chair_Sitting_public"  # Default public avatar
@@ -188,7 +189,7 @@ async def bot(runner_args: RunnerArguments):
             video_out_width=1280,  # Reduced for better performance
             video_out_height=720,
             # audio_out_sample_rate=16000,  # Standard rate for better compatibility
-            camera_out_bitrate=8000,
+            # camera_out_bitrate=8000,
 
             vad_analyzer=SileroVADAnalyzer(),
         ),

@@ -21,6 +21,8 @@ from pipecat.runner.types import RunnerArguments, DailyRunnerArguments
 # Setup FastAPI app
 app = FastAPI(title="Pipecat Bot Production", version="1.0.0")
 
+print("🚀 FastAPI app initialized in production mode")
+
 # Setup templates
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
@@ -37,7 +39,8 @@ async def client(request: Request):
 @app.get("/health")
 async def health():
     """Health check endpoint."""
-    return {"status": "healthy", "mode": "production"}
+    print("🏥 Health check requested")
+    return {"status": "healthy", "mode": "production", "timestamp": "2025-09-01"}
 
 @app.post("/api/offer")
 async def handle_offer(request: Request):
@@ -58,16 +61,23 @@ async def handle_offer(request: Request):
 async def start_daily_session(request: Request):
     """RTVI-compatible /start endpoint for Daily transport."""
     try:
+        print("📞 Received /start request")
         data = await request.json()
+        print(f"📝 Request data: {data}")
+
         create_room = data.get("createDailyRoom", True)
         room_properties = data.get("dailyRoomProperties", {})
         body = data.get("body", {})
 
         api_key = os.getenv("DAILY_API_KEY")
         if not api_key:
+            print("❌ DAILY_API_KEY not set")
             raise HTTPException(status_code=500, detail="DAILY_API_KEY not set")
 
+        print("✅ API key found, proceeding with room creation")
+
         if create_room:
+            print("🏗️ Creating Daily room...")
             # Create room via Daily REST API
             room_response = requests.post(
                 "https://api.daily.co/v1/rooms",
@@ -84,12 +94,15 @@ async def start_daily_session(request: Request):
             )
 
             if room_response.status_code != 200:
+                print(f"❌ Failed to create room: {room_response.status_code} - {room_response.text}")
                 raise HTTPException(status_code=500, detail=f"Failed to create room: {room_response.text}")
 
             room_data = room_response.json()
             room_url = room_data["url"]
+            print(f"✅ Room created: {room_url}")
 
             # Create token for the room
+            print("🎫 Creating meeting token...")
             token_response = requests.post(
                 "https://api.daily.co/v1/meeting-tokens",
                 headers={
@@ -105,9 +118,11 @@ async def start_daily_session(request: Request):
             )
 
             if token_response.status_code != 200:
+                print(f"❌ Failed to create token: {token_response.status_code} - {token_response.text}")
                 raise HTTPException(status_code=500, detail=f"Failed to create token: {token_response.text}")
 
             token = token_response.json()["token"]
+            print("✅ Token created successfully")
         else:
             # Use existing room
             sample_room = os.getenv("DAILY_SAMPLE_ROOM_URL")
@@ -139,6 +154,7 @@ async def start_daily_session(request: Request):
             token = token_response.json()["token"]
 
         # Spawn bot in background (simplified for production)
+        print("🤖 Spawning bot in background...")
         asyncio.create_task(spawn_bot_async(DailyRunnerArguments(
             room_url=room_url,
             token=token,
@@ -147,37 +163,30 @@ async def start_daily_session(request: Request):
 
         # Create clickable room link with token
         clickable_room_link = f"{room_url}?t={token}"
+        print(f"🎉 Bot session ready! Room link: {clickable_room_link}")
 
         return {
             "clickable_room_link": clickable_room_link
         }
 
     except Exception as e:
+        print(f"💥 Error in start_daily_session: {e}")
+        import traceback
+        print(f"📋 Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 async def spawn_bot_async(runner_args: RunnerArguments):
     """Spawn a bot instance asynchronously."""
     try:
-        # Import the bot function from bot.py
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("bot_module", "bot.py")
-        if spec is None:
-            print("Could not find bot.py file")
-            return
-        bot_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(bot_module)
-
-        # Get the bot function
-        bot_func = getattr(bot_module, "bot", None)
-        if not bot_func:
-            print("No 'bot' function found in bot.py")
-            return
-
-        # Call the bot function
-        await bot_func(runner_args)
-
+        print(f"🚀 Starting bot with args: room_url={runner_args.room_url[:50]}...")
+        # Use the pre-imported bot function to avoid dynamic imports in production
+        await bot_function(runner_args)
+        print("✅ Bot completed successfully")
     except Exception as e:
-        print(f"Error in bot: {e}")
+        print(f"❌ Error in bot: {e}")
+        import traceback
+        print(f"📋 Bot traceback: {traceback.format_exc()}")
+        # Don't re-raise the exception to avoid crashing the web server
 
 def main():
     """Main entry point for the application."""
