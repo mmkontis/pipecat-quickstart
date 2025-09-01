@@ -363,7 +363,7 @@ class PipecatRunner:
 
 
 @click.command()
-@click.option("--host", default="0.0.0.0", help="Server host address")
+@click.option("--host", default="0.0.0.0", help="Server host address")v
 @click.option("--port", default=7860, type=int, help="Server port")
 @click.option("-t", "--transport", default="daily",
               type=click.Choice(["webrtc", "daily", "twilio", "telnyx", "plivo"]),
