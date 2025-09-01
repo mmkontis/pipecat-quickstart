@@ -194,7 +194,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                     context_aggregator.user(),  # User responses
                     llm,  # LLM
                     tts,  # TTS
-                    heygen,  # HeyGen avatar video generation
+                    # heygen,  # HeyGen avatar video generation
                     transport.output(),  # Transport bot output
                     context_aggregator.assistant(),  # Assistant spoken responses
                 ]
@@ -231,6 +231,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                 print("✅ Initial message queued")
             except Exception as e:
                 print(f"❌ Error in client connected handler: {e}")
+                import traceback
+                print(f"❌ Full traceback: {traceback.format_exc()}")
                 raise
 
         @transport.event_handler("on_client_disconnected")
@@ -242,7 +244,23 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                 print("✅ Task cancelled")
             except Exception as e:
                 print(f"❌ Error in client disconnected handler: {e}")
+                import traceback
+                print(f"❌ Full traceback: {traceback.format_exc()}")
                 raise
+
+        # Add more detailed transport event handlers
+        @transport.event_handler("on_first_participant_joined")
+        async def on_first_participant_joined(transport, participant):
+            print(f"🎉 First participant joined: {participant}")
+            print("🎯 Bot should start responding now")
+
+        @transport.event_handler("on_participant_left")
+        async def on_participant_left(transport, participant):
+            print(f"👋 Participant left: {participant}")
+
+        @transport.event_handler("on_call_state_updated")
+        async def on_call_state_updated(transport, state):
+            print(f"📞 Call state updated: {state}")
 
         print("🏃 Starting pipeline runner...")
         try:
@@ -254,7 +272,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             print("✅ Pipeline task completed")
         except Exception as e:
             print(f"❌ Error running pipeline: {e}")
+            import traceback
+            print(f"❌ Full pipeline error traceback: {traceback.format_exc()}")
             raise
+        finally:
+            print("🔚 Pipeline task finished (completed or crashed)")
 
 
 async def bot(runner_args: RunnerArguments):
@@ -268,10 +290,10 @@ async def bot(runner_args: RunnerArguments):
         "daily": lambda: DailyParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            video_out_enabled=True,  # Enable video output for avatar
-            video_out_is_live=True,  # Real-time video streaming
-            video_out_width=1280,  # Reduced for better performance
-            video_out_height=720,
+            # video_out_enabled=True,  # Enable video output for avatar
+            # video_out_is_live=True,  # Real-time video streaming
+            # video_out_width=1280,  # Reduced for better performance
+            # video_out_height=720,
             # audio_out_sample_rate=16000,  # Standard rate for better compatibility
             # camera_out_bitrate=8000,
 
