@@ -314,6 +314,11 @@ class PipecatRunner:
         """Run the development runner."""
         # Debug environment variables for Sevalla
         import os
+        sevalla_port = os.getenv('PORT')
+        if sevalla_port:
+            self.port = int(sevalla_port)
+            logger.info(f"🔧 Using Sevalla PORT environment variable: {self.port}")
+        
         logger.info(f"🔍 Environment debug - PORT: {os.getenv('PORT', 'not set')}")
         logger.info(f"🔍 Environment debug - HOST: {os.getenv('HOST', 'not set')}")
         logger.info(f"🔍 Runner config - host: {self.host}, port: {self.port}")
