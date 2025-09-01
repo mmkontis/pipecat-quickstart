@@ -33,12 +33,43 @@ Or use the development runner::
 
 import os
 import aiohttp
+import sys
+import psutil
+import gc
 
 from dotenv import load_dotenv
 from loguru import logger
 from pipecat.frames.frames import LLMMessagesUpdateFrame
 from typing import List, cast
 from openai.types.chat import ChatCompletionMessageParam
+
+# Global exception handler
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    """Handle uncaught exceptions"""
+    print(f"💥 UNCAUGHT EXCEPTION: {exc_type.__name__}: {exc_value}")
+    import traceback
+    print(f"💥 Traceback: {''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))}")
+
+    # Try to get memory info
+    try:
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        print(f"💥 Memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
+    except:
+        pass
+
+# Install global exception handler
+sys.excepthook = global_exception_handler
+
+def log_memory_usage():
+    """Log current memory usage"""
+    try:
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        print(f"📊 Memory: {memory_info.rss / 1024 / 1024:.2f} MB, "
+              f"CPU: {psutil.cpu_percent(interval=1):.1f}%")
+    except Exception as e:
+        print(f"⚠️ Could not get memory stats: {e}")
 
 print("🚀 Starting Pipecat bot...")
 print("⏳ Loading models and imports (20 seconds first run only)\n")
@@ -77,6 +108,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     logger.info(f"Starting bot")
     print(f"🔍 Runner args: {runner_args}")
     print(f"🔍 Transport type: {type(transport)}")
+    log_memory_usage()
 
     # Get API keys with error handling
     print("🔑 Checking API keys...")
@@ -144,9 +176,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
 
     # Create aiohttp session for HeyGen with optimized timeouts
     print("🎭 Initializing HeyGen video service...")
-    timeout = aiohttp.ClientTimeout(total=30, connect=10)
+    timeout = aiohttp.ClientTimeout(total=60, connect=15, sock_read=30, sock_connect=15)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
+            print("🎭 Creating HeyGen service instance...")
             # Configure HeyGen video service with optimizations
             heygen = HeyGenVideoService(
                 api_key=heygen_key,
@@ -157,9 +190,21 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                 ),
             )
             print("✅ HeyGen video service created")
+
+            # Test HeyGen connection
+            try:
+                print("🔗 Testing HeyGen connection...")
+                # This will attempt to create a session
+                await heygen.start()
+                print("✅ HeyGen service started successfully")
+            except Exception as e:
+                print(f"⚠️ HeyGen start failed (this might be expected): {e}")
+
         except Exception as e:
             print(f"❌ Failed to create HeyGen service: {e}")
-            raise   
+            import traceback
+            print(f"❌ HeyGen creation traceback: {traceback.format_exc()}")
+            raise
 
         print("🗨️ Setting up conversation context...")
         messages: List[ChatCompletionMessageParam] = [
@@ -253,6 +298,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         async def on_first_participant_joined(transport, participant):
             print(f"🎉 First participant joined: {participant}")
             print("🎯 Bot should start responding now")
+            log_memory_usage()
 
         @transport.event_handler("on_participant_left")
         async def on_participant_left(transport, participant):
@@ -324,6 +370,8 @@ async def bot(runner_args: RunnerArguments):
         print("✅ Bot completed successfully")
     except Exception as e:
         print(f"❌ Bot failed: {e}")
+        import traceback
+        print(f"❌ Full bot error traceback: {traceback.format_exc()}")
         raise
 
 
