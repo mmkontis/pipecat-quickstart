@@ -18,4 +18,7 @@ exec uvicorn \
     --host 0.0.0.0 \
     --port 7860 \
     --workers 1 \
-    --log-level info
+    --log-level info \
+    --access-log \
+    --proxy-headers \
+    --forwarded-allow-ips "*"

@@ -28,9 +28,9 @@ environment:
 # Health check
 healthcheck:
   path: "/health"
-  interval: 30s
-  timeout: 10s
-  start_period: 60s
+  interval: 10s
+  timeout: 5s
+  start_period: 30s
   retries: 3
 
 # Resource allocation (adjust based on load)
