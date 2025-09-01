@@ -11,7 +11,7 @@ Usage:
 
 Options:
   --host TEXT          Server host address (default: localhost)
-  --port INTEGER       Server port (default: 7860)
+  --port INTEGER       Server port (default: 8080)
   -t, --transport      Transport type: daily, webrtc, twilio, telnyx, plivo (default: daily)
   -x, --proxy TEXT     Public proxy hostname for telephony webhooks (required for telephony)
   --esp32              Enable SDP munging for ESP32 WebRTC compatibility
@@ -77,7 +77,7 @@ class PipecatRunner:
     def __init__(
         self,
         host: str = "0.0.0.0",
-        port: int = 7860,
+        port: int = 8080,
         transport: str = "daily",
         proxy: Optional[str] = None,
         esp32: bool = False,
@@ -369,7 +369,7 @@ class PipecatRunner:
 
 @click.command()
 @click.option("--host", default="0.0.0.0", help="Server host address")
-@click.option("--port", default=7860, type=int, help="Server port")
+@click.option("--port", default=8080, type=int, help="Server port")
 @click.option("-t", "--transport", default="daily",
               type=click.Choice(["webrtc", "daily", "twilio", "telnyx", "plivo"]),
               help="Transport type")

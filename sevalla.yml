@@ -44,18 +44,18 @@ scaling:
   target_cpu_utilization: 70
   target_memory_utilization: 80
 
-# Port configuration
+# Port configuration - use environment PORT variable
 ports:
-  - port: 7860
+  - port: 8080
     protocol: http
 
 # Domains and routing
 routes:
   - path: "/"
-    port: 7860
+    port: 8080
   - path: "/client"
-    port: 7860
+    port: 8080
   - path: "/api/*"
-    port: 7860
+    port: 8080
   - path: "/health"
-    port: 7860
+    port: 8080

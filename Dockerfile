@@ -7,10 +7,11 @@ ENV PYTHONPATH=/app
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/app:$PATH"
 
-# Install system dependencies
+# Install system dependencies including ffmpeg for audio/video processing
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
@@ -31,12 +32,12 @@ RUN chmod +x /app/start.sh
 # Create logs directory
 RUN mkdir -p /app/logs
 
-# Expose port
-EXPOSE 7860
+# Expose port (dynamic based on environment)
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-7860}/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
 
 # Start the application with correct host binding for Sevalla
 CMD ["python", "runner.py", "--host", "0.0.0.0", "--transport", "daily"]
