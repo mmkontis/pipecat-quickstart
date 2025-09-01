@@ -19,7 +19,7 @@ environment:
   - name: WORKERS
     value: "2"
   - name: TRANSPORT
-    value: "daily"  # Change to "webrtc" to enable WebRTC transport
+    value: "webrtc"  # Change to "daily" for Daily transport
 
 # Secrets (configure these in Sevalla dashboard)
 # DEEPGRAM_API_KEY
