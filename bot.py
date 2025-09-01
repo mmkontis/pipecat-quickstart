@@ -239,7 +239,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                     context_aggregator.user(),  # User responses
                     llm,  # LLM
                     tts,  # TTS
-                    # heygen,  # HeyGen avatar video generation
+                    heygen,  # HeyGen avatar video generation
                     transport.output(),  # Transport bot output
                     context_aggregator.assistant(),  # Assistant spoken responses
                 ]
@@ -336,12 +336,12 @@ async def bot(runner_args: RunnerArguments):
         "daily": lambda: DailyParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            # video_out_enabled=True,  # Enable video output for avatar
-            # video_out_is_live=True,  # Real-time video streaming
-            # video_out_width=1280,  # Reduced for better performance
-            # video_out_height=720,
-            # audio_out_sample_rate=16000,  # Standard rate for better compatibility
-            # camera_out_bitrate=8000,
+            video_out_enabled=True,  # Enable video output for avatar
+            video_out_is_live=True,  # Real-time video streaming
+            video_out_width=1280,  # Reduced for better performance
+            video_out_height=720,
+            audio_out_sample_rate=16000,  # Standard rate for better compatibility
+            camera_out_bitrate=8000,
 
             vad_analyzer=SileroVADAnalyzer(),
         ),
