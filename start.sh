@@ -3,7 +3,7 @@
 
 echo "🚀 Starting Pipecat Bot in Production Mode"
 echo "📊 Workers: $(nproc)"
-echo "🌐 Port: 7860"
+echo "🌐 Port: 8080"
 
 # Set production environment
 export PYTHONPATH=/app
@@ -16,7 +16,7 @@ mkdir -p /app/logs 2>/dev/null || mkdir -p ./logs 2>/dev/null || true
 exec uvicorn \
     simple_test:app \
     --host 0.0.0.0 \
-    --port 7860 \
+    --port 8080 \
     --workers 1 \
     --log-level info \
     --access-log

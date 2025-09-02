@@ -281,7 +281,7 @@
                     await this.peerConnection.setLocalDescription(offer);
 
                     // Send offer to server via WebSocket
-                    const ws = new WebSocket('ws://localhost:7860/ws');
+                    const ws = new WebSocket('ws://localhost:8080/ws');
                     ws.onopen = () => {
                         ws.send(JSON.stringify({
                             type: 'offer',

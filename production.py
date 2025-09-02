@@ -97,7 +97,7 @@ def main():
     uvicorn.run(
         "production:app",
         host="0.0.0.0",
-        port=7860,
+        port=8080,
         workers=1,
         log_level="info"
     )

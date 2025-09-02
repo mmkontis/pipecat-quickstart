@@ -36,6 +36,7 @@ import aiohttp
 import sys
 import psutil
 import gc
+import requests
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -71,6 +72,8 @@ def log_memory_usage():
     except Exception as e:
         print(f"⚠️ Could not get memory stats: {e}")
 
+# Quiet HeyGen classes will be defined after imports are loaded
+
 print("🚀 Starting Pipecat bot...")
 print("⏳ Loading models and imports (20 seconds first run only)\n")
 
@@ -90,6 +93,7 @@ from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.heygen.video import HeyGenVideoService
 from pipecat.services.heygen.api import NewSessionRequest
+from pipecat.services.heygen.client import HeyGenClient
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.services.daily import DailyParams
@@ -100,7 +104,76 @@ from pipecat.transports.services.daily import DailyParams
 
 logger.info("✅ All components loaded successfully!")
 
+# Suppress HeyGen buffer spam by filtering log messages
+import logging
+
+class HeyGenLogFilter(logging.Filter):
+    """Filter to suppress noisy HeyGen buffer events"""
+    
+    def filter(self, record):
+        # Suppress specific HeyGen buffer messages
+        if "HeyGenClient ws received unknown event:" in record.getMessage():
+            message = record.getMessage()
+            if any(event in message for event in [
+                "agent.audio_buffer_appended",
+                "agent.audio_buffer_committed", 
+                "agent.audio_buffer_cleared",
+                "agent.speak_ended",
+                "agent.idle_started"
+            ]):
+                return False
+        return True
+
+# Apply the filter to suppress HeyGen buffer spam
+heygen_logger = logging.getLogger("pipecat.services.heygen.client")
+heygen_logger.addFilter(HeyGenLogFilter())
+
 load_dotenv(override=True)
+
+
+async def start_daily_recording(room_url: str) -> bool:
+    """Start recording via Daily REST API when first participant joins."""
+    try:
+        api_key = os.getenv("DAILY_API_KEY")
+        if not api_key:
+            print("⚠️ DAILY_API_KEY not found - skipping recording")
+            return False
+
+        # Extract room name from URL
+        room_name = room_url.split("/")[-1].split("?")[0]
+        print(f"🎥 Starting recording for room: {room_name}")
+
+        # Start recording via Daily REST API
+        response = requests.post(
+            f"https://api.daily.co/v1/rooms/{room_name}/recordings/start",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "type": "cloud",  # Use cloud recording
+                "layout": {
+                        "preset": "portrait",
+                        "variant": "vertical"
+                    },
+                "width": 1080,
+                "height": 1920,
+                "backgroundColor": "#000000"
+                
+            }
+        )
+
+        if response.status_code == 200:
+            recording_data = response.json()
+            print(f"✅ Recording started successfully: {recording_data.get('id', 'unknown')}")
+            return True
+        else:
+            print(f"❌ Failed to start recording: {response.status_code} - {response.text}")
+            return False
+
+    except Exception as e:
+        print(f"❌ Error starting recording: {e}")
+        return False
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
@@ -141,6 +214,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     print("🎙️ Initializing speech services...")
     try:
         stt = DeepgramSTTService(api_key=deepgram_key)
+
+        
         print("✅ Deepgram STT service created")
     except Exception as e:
         print(f"❌ Failed to create Deepgram STT: {e}")
@@ -183,7 +258,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             # Configure HeyGen video service with optimizations
             heygen = HeyGenVideoService(
                 api_key=heygen_key,
-                video_encoding="H264",
+                # video_encoding="H264",
+                quality='High',  # Using string instead of undefined AvatarQuality enum
                 session=session,
                 session_request=NewSessionRequest(
                     avatar_id="Katya_Chair_Sitting_public"  # Default public avatar
@@ -191,14 +267,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             )
             print("✅ HeyGen video service created")
 
-            # Test HeyGen connection
-            try:
-                print("🔗 Testing HeyGen connection...")
-                # This will attempt to create a session
-                await heygen.start()
-                print("✅ HeyGen service started successfully")
-            except Exception as e:
-                print(f"⚠️ HeyGen start failed (this might be expected): {e}")
+            # Note: HeyGen service will be started automatically by the pipeline
+            # when it receives its first frame. No manual start() needed.
+            print("ℹ️ HeyGen service will start automatically when pipeline receives first frame")
 
         except Exception as e:
             print(f"❌ Failed to create HeyGen service: {e}")
@@ -210,7 +281,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         messages: List[ChatCompletionMessageParam] = [
             {
                 "role": "system",
-                "content": "You are a friendly AI assistant with a visual avatar. Respond naturally and keep your answers conversational.",
+                "content": "You are Zoe Fragkou, a friendly AI assistant with a visual avatar. Respond naturally and keep your answers conversational. Always introduce yourself as Zoe Fragkou when appropriate.",
             },
         ]
 
@@ -271,7 +342,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             logger.info(f"Client connected")
             try:
                 # Kick off the conversation.
-                messages.append({"role": "system", "content": "Say hello and briefly introduce yourself."})
+                messages.append({"role": "system", "content": "Say hello and introduce yourself as Zoe Fragkou, a friendly AI assistant with a visual avatar."})
                 await task.queue_frames([LLMMessagesUpdateFrame(messages=cast(list, messages), run_llm=True)])
                 print("✅ Initial message queued")
             except Exception as e:
@@ -299,6 +370,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             print(f"🎉 First participant joined: {participant}")
             print("🎯 Bot should start responding now")
             log_memory_usage()
+
+            # Auto-start recording when first participant joins
+            room_url = getattr(runner_args, 'room_url', None)
+            if room_url:
+                print("🎥 Auto-starting recording for first participant...")
+                await start_daily_recording(room_url)
+            else:
+                print("⚠️ No room URL available for recording")
 
         @transport.event_handler("on_participant_left")
         async def on_participant_left(transport, participant):
@@ -338,8 +417,8 @@ async def bot(runner_args: RunnerArguments):
             audio_out_enabled=True,
             video_out_enabled=True,  # Enable video output for avatar
             video_out_is_live=True,  # Real-time video streaming
-            video_out_width=1280,  # Reduced for better performance
-            video_out_height=720,
+            video_out_width=1920,  # Portrait: 1080x1920
+            video_out_height=1080,
             # audio_out_sample_rate=16000,  # Standard rate for better compatibility
             # camera_out_bitrate=8000,
 
@@ -351,8 +430,8 @@ async def bot(runner_args: RunnerArguments):
             vad_analyzer=SileroVADAnalyzer(),
             video_out_enabled=True,  # Enable video output for avatar
             video_out_is_live=True,  # Real-time video streaming
-            video_out_width=1280,  # Reduced for better performance
-            video_out_height=720,
+            video_out_width=1080,  # Portrait: 1080x1920
+            video_out_height=1920,
         ),
     }
 
@@ -377,7 +456,7 @@ async def bot(runner_args: RunnerArguments):
 
 # For production with multiple processes:
 # Use: gunicorn -w 4 -k uvicorn.workers.UvicornWorker production:app
-# Or: uvicorn production:app --host 0.0.0.0 --port 7860 --workers 4
+# Or: uvicorn production:app --host 0.0.0.0 --port 8080 --workers 4
 
 if __name__ == "__main__":
     # For development/single process - force Daily transport

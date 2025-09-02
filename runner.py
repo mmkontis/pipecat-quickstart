@@ -32,6 +32,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 import click
 
 from loguru import logger
@@ -103,6 +104,15 @@ class PipecatRunner:
         # Initialize FastAPI app
         self.app = FastAPI(title="Pipecat Development Runner", version="1.0.0")
 
+        # Add CORS middleware
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],  # Allows all origins
+            allow_credentials=True,
+            allow_methods=["*"],  # Allows all methods
+            allow_headers=["*"],  # Allows all headers
+        )
+
         # Setup templates and static files
         self.templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
@@ -156,8 +166,7 @@ class PipecatRunner:
         # We'll use HTTP requests to Daily REST API instead of SDK
         import requests
 
-        @self.app.post("/start")
-        async def start_daily_session(request: Request):
+        async def _start_daily_session_logic(request: Request):
             """RTVI-compatible /start endpoint for Daily transport."""
             try:
                 data = await request.json()
@@ -180,17 +189,18 @@ class PipecatRunner:
                         json={
                             "properties": {
                                 "enable_chat": room_properties.get("enable_chat", True),
-                                "enable_screenshare": room_properties.get("enable_screenshare", False)
+                                "enable_screenshare": room_properties.get("enable_screenshare", False),
+                                "enable_recording": room_properties.get("enable_recording", os.getenv("DAILY_ENABLE_RECORDING", "cloud"))
                             }
                         }
                     )
-                    
+
                     if room_response.status_code != 200:
                         raise HTTPException(status_code=500, detail=f"Failed to create room: {room_response.text}")
-                    
+
                     room_data = room_response.json()
                     room_url = room_data["url"]
-                    
+
                     # Create token for the room
                     token_response = requests.post(
                         "https://api.daily.co/v1/meeting-tokens",
@@ -201,14 +211,15 @@ class PipecatRunner:
                         json={
                             "properties": {
                                 "room_name": room_data["name"],
-                                "user_name": "Pipecat Bot"
+                                "user_name": "USERName",
+                                "start_cloud_recording": room_properties.get("start_cloud_recording", os.getenv("DAILY_START_CLOUD_RECORDING", "false").lower() == "true")
                             }
                         }
                     )
-                    
+
                     if token_response.status_code != 200:
                         raise HTTPException(status_code=500, detail=f"Failed to create token: {token_response.text}")
-                    
+
                     token = token_response.json()["token"]
                 else:
                     # Use existing room
@@ -216,10 +227,10 @@ class PipecatRunner:
                     if not sample_room:
                         raise HTTPException(status_code=400, detail="No room URL provided")
                     room_url = sample_room
-                    
+
                     # Extract room name from URL
                     room_name = room_url.split("/")[-1]
-                    
+
                     # Create token for existing room
                     token_response = requests.post(
                         "https://api.daily.co/v1/meeting-tokens",
@@ -230,23 +241,47 @@ class PipecatRunner:
                         json={
                             "properties": {
                                 "room_name": room_name,
-                                "user_name": "Pipecat Bot"
+                                "user_name": "USERName",
+                                "start_cloud_recording": room_properties.get("start_cloud_recording", os.getenv("DAILY_START_CLOUD_RECORDING", "false").lower() == "true")
                             }
                         }
                     )
-                    
+
                     if token_response.status_code != 200:
                         raise HTTPException(status_code=500, detail=f"Failed to create token: {token_response.text}")
-                    
+
                     token = token_response.json()["token"]
 
                 # Spawn bot in background
                 task_id = f"daily_{len(self.active_tasks)}"
+                # Create separate token for bot with bot's name
+                bot_token_response = requests.post(
+                    "https://api.daily.co/v1/meeting-tokens",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "properties": {
+                            "room_name": room_data["name"] if create_room else room_name,
+                            "user_name": "Zoe Fragkou",
+                            "start_cloud_recording": False
+                        }
+                    }
+                )
+
+                if bot_token_response.status_code == 200:
+                    bot_token = bot_token_response.json()["token"]
+                    bot_room_url = f"{room_url}?t={bot_token}"
+                else:
+                    # Fallback to URL parameter approach
+                    bot_room_url = f"{room_url}?name=Zoe Fragkou"
+
                 task = asyncio.create_task(
                     self._spawn_bot(
                         DailyRunnerArguments(
-                            room_url=room_url,
-                            token=token,
+                            room_url=bot_room_url,
+                            token=bot_token if 'bot_token' in locals() else token,
                             body=body,
                         ),
                         task_id
@@ -256,7 +291,7 @@ class PipecatRunner:
 
                 # Create clickable room link with token
                 clickable_room_link = f"{room_url}?t={token}"
-                
+
                 return {
                     "clickable_room_link": clickable_room_link
                 }
@@ -264,6 +299,11 @@ class PipecatRunner:
             except Exception as e:
                 logger.error(f"Error starting Daily session: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post("/start")
+        async def start_daily_session(request: Request):
+            """RTVI-compatible /start endpoint for Daily transport."""
+            return await _start_daily_session_logic(request)
 
     def _setup_telephony_routes(self):
         """Setup telephony-specific routes."""
