@@ -213,24 +213,40 @@ class PipecatRunner:
                 heygen_avatar_id = data.get("heygen_avatar_id") or body.get("heygen_avatar_id")
                 print(f"DEBUG: WebRTC heygen_avatar_id = {heygen_avatar_id}, data keys = {list(data.keys())}")
 
-                bot_name = body.get("bot_name", "Nano Banana AI")
-                user_name = body.get("user_name", "friend")
+                bot_name = body.get("bot_name") or data.get("bot_name", "Nano Banana AI")
+                user_name = body.get("user_name") or data.get("user_name", "friend")
+                system_prompt = body.get("system_prompt") or data.get("system_prompt")
+                language = body.get("language") or data.get("language")
 
                 # Spawn bot in background for WebRTC
                 task_id = f"webrtc_{len(self.active_tasks)}"
                 
+                # Create a simple class that inherits from RunnerArguments
+                class WebRTCArgs(RunnerArguments):
+                    def __init__(self):
+                        super().__init__()
+                        self.body = {
+                            "body": body,
+                            "tts": tts,
+                            "heygen_avatar_id": heygen_avatar_id,
+                            "bot_name": bot_name,
+                            "user_name": user_name,
+                            "system_prompt": system_prompt,
+                            "language": language
+                        } if heygen_avatar_id else {
+                            "body": body,
+                            "tts": tts,
+                            "bot_name": bot_name,
+                            "user_name": user_name,
+                            "system_prompt": system_prompt,
+                            "language": language
+                        }
+                        self.handle_sigint = False
+                
+                webrtc_args = WebRTCArgs()
+                
                 task = asyncio.create_task(
-                    self._spawn_bot(
-                        # Create a mock runner args for WebRTC
-                        type('MockRunner', (), {
-                            'transport': 'webrtc',
-                            'room_url': None,
-                            'token': None,
-                            'body': {"body": body, "tts": tts, "heygen_avatar_id": heygen_avatar_id} if heygen_avatar_id else {"body": body, "tts": tts},
-                            'handle_sigint': False
-                        })(),
-                        task_id
-                    )
+                    self._spawn_bot(webrtc_args, task_id)
                 )
                 self.active_tasks[task_id] = task
 
@@ -269,8 +285,10 @@ class PipecatRunner:
                 heygen_avatar_id = data.get("heygen_avatar_id") or body.get("heygen_avatar_id")
                 print(f"DEBUG: heygen_avatar_id = {heygen_avatar_id}, data keys = {list(data.keys())}")
 
-                bot_name = body.get("bot_name", "Nano Banana AI")
-                user_name = body.get("user_name", "friend")
+                bot_name = body.get("bot_name") or data.get("bot_name", "Nano Banana AI")
+                user_name = body.get("user_name") or data.get("user_name", "friend")
+                system_prompt = body.get("system_prompt") or data.get("system_prompt")
+                language = body.get("language") or data.get("language")
                 api_key = os.getenv("DAILY_API_KEY")
                 if not api_key:
                     raise HTTPException(status_code=500, detail="DAILY_API_KEY not set")
@@ -379,7 +397,22 @@ class PipecatRunner:
                         DailyRunnerArguments(
                             room_url=bot_room_url,
                             token=bot_token if 'bot_token' in locals() else token,
-                            body={"body": body, "tts": tts, "heygen_avatar_id": heygen_avatar_id} if heygen_avatar_id else {"body": body, "tts": tts},
+                            body={
+                                "body": body,
+                                "tts": tts,
+                                "heygen_avatar_id": heygen_avatar_id,
+                                "bot_name": bot_name,
+                                "user_name": user_name,
+                                "system_prompt": system_prompt,
+                                "language": language
+                            } if heygen_avatar_id else {
+                                "body": body,
+                                "tts": tts,
+                                "bot_name": bot_name,
+                                "user_name": user_name,
+                                "system_prompt": system_prompt,
+                                "language": language
+                            },
                         ),
                         task_id
                     )
