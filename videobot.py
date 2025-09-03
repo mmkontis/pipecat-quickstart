@@ -488,7 +488,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     except Exception as e:
         print(f"❌ Failed to create pipeline task: {e}")
         raise
-
+ 
+ ##
     print("🔗 Setting up event handlers...")
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
