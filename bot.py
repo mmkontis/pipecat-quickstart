@@ -381,7 +381,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     # Create the processor with 10-second timeout
     user_idle = UserIdleProcessor(
         callback=idle_tracker.handle_idle,
-        timeout=10.0  # 10 seconds of silence
+        timeout=30.0  # 10 seconds of silence
     )
     # Create voice-only pipeline
     print("🎵 Creating voice-only pipeline...")
@@ -518,12 +518,12 @@ async def bot(runner_args: RunnerArguments):
             video_out_enabled=False,  # Voice-only bot - no video
             video_out_is_live=False,  # Voice-only bot - no video
             vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(
-                start_secs=0,
-                stop_secs=0,
-                confidence=0.5,
-                min_volume=0.5
-                )
+                # params=VADParams(
+                # start_secs=0,
+                # stop_secs=0,
+                # confidence=0.5,
+                # min_volume=0.5
+                # )
             ),
         ),
         "webrtc": lambda: TransportParams(
