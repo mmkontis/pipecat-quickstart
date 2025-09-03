@@ -133,6 +133,7 @@ celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
+GOOGLE_TEST_CREDENTIALS.json
 
 # Environments
 .env

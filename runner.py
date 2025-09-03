@@ -173,7 +173,8 @@ class PipecatRunner:
                 create_room = data.get("createDailyRoom", True)
                 room_properties = data.get("dailyRoomProperties", {})
                 body = data.get("body", {})
-
+                bot_name = body.get("bot_name", "Nano Banana AI")
+                user_name = body.get("user_name", "friend")
                 api_key = os.getenv("DAILY_API_KEY")
                 if not api_key:
                     raise HTTPException(status_code=500, detail="DAILY_API_KEY not set")
@@ -211,7 +212,7 @@ class PipecatRunner:
                         json={
                             "properties": {
                                 "room_name": room_data["name"],
-                                "user_name": "USERName",
+                                "user_name": user_name,
                                 "start_cloud_recording": room_properties.get("start_cloud_recording", os.getenv("DAILY_START_CLOUD_RECORDING", "false").lower() == "true")
                             }
                         }
@@ -241,7 +242,7 @@ class PipecatRunner:
                         json={
                             "properties": {
                                 "room_name": room_name,
-                                "user_name": "USERName",
+                                "user_name": user_name,
                                 "start_cloud_recording": room_properties.get("start_cloud_recording", os.getenv("DAILY_START_CLOUD_RECORDING", "false").lower() == "true")
                             }
                         }
@@ -264,7 +265,7 @@ class PipecatRunner:
                     json={
                         "properties": {
                             "room_name": room_data["name"] if create_room else room_name,
-                            "user_name": "Zoe Fragkou",
+                            "user_name": bot_name,
                             "start_cloud_recording": False
                         }
                     }
@@ -292,9 +293,82 @@ class PipecatRunner:
                 # Create clickable room link with token
                 clickable_room_link = f"{room_url}?t={token}"
 
-                return {
-                    "clickable_room_link": clickable_room_link
+                # Check for heygen avatar configuration
+                # HeyGen is only enabled when explicitly requested via heygen_avatar_id
+                heygen_enabled = False
+
+                # Build response with LLM, TTS declarations and pipeline info
+                response = {
+                    "clickable_room_link": clickable_room_link,
+                    "llm": {
+                        "default_model": "gpt-4o-mini",
+                        "available_models": [
+                            "gpt-5",
+                            "gpt-5-mini",
+                            "gpt-5-nano",
+                            "gpt-4o-mini",
+                            "claude-3-5-haiku-latest",
+                            "claude-sonnet-4-20250514"
+                        ]
+                    },
+                    "tts": {
+                        "default_provider": "cartesia",
+                        "providers": [
+                            "openai",
+                            "cartesia",
+                            "google",
+                            "elevenlabs"
+                        ]
+                    },
+                    "pipeline": {
+                        "architecture": "conditional_dual_pipeline",
+                        "pipelines": [
+                            {
+                                "name": "voice_only_pipeline",
+                                "condition": "no heygen_avatar_id provided",
+                                "components": ["transport", "rtvi", "stt", "llm", "tts"],
+                                "purpose": "Voice conversation without avatar"
+                            },
+                            {
+                                "name": "voice_with_avatar_pipeline",
+                                "condition": "heygen_avatar_id provided",
+                                "components": ["transport", "rtvi", "stt", "llm", "tts", "heygen"],
+                                "purpose": "Voice conversation with avatar"
+                            }
+                        ]
+                    },
+                    "avatar": {
+                        "enabled": False,
+                        "provider": None,
+                        "usage": "Include 'heygen_avatar_id' in request body to enable HeyGen avatar",
+                        "example": "curl -X POST /start -d '{\"heygen_avatar_id\":\"Katya_Chair_Sitting_public\"}'"
+                    },
+                    "customization": {
+                        "system_prompt": {
+                            "description": "Customize the AI assistant's system prompt",
+                            "default": "You are Nano Banana AI, a fun and helpful AI assistant...",
+                            "example": "curl -X POST /start -d '{\"system_prompt\":\"You are a helpful assistant...\"}'"
+                        },
+                        "first_message": {
+                            "description": "Customize the first message the AI sends",
+                            "default": "Say hi to Nano Banana! I'm your fun AI assistant...",
+                            "example": "curl -X POST /start -d '{\"first_message\":\"Hello! I am your AI assistant.\"}'"
+                        },
+                        "bot_name": {
+                            "description": "Customize the AI assistant's name",
+                            "default": "Nano Banana AI",
+                            "example": "curl -X POST /start -d '{\"bot_name\":\"Zoe Fragkou\"}'"
+                        },
+                        "user_name": {
+                            "description": "Specify the user's name for personalized conversation",
+                            "default": "friend",
+                            "example": "curl -X POST /start -d '{\"user_name\":\"John\"}'"
+                        },
+                        "combined_example": "curl -X POST /start -d '{\"system_prompt\":\"You are a helpful assistant\",\"first_message\":\"Hello!\",\"bot_name\":\"Zoe Fragkou\",\"user_name\":\"John\",\"heygen_avatar_id\":\"avatar_name\"}'"
+                    }
                 }
+
+                return response
 
             except Exception as e:
                 logger.error(f"Error starting Daily session: {e}")

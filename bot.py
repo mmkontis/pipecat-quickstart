@@ -78,7 +78,7 @@ print("🚀 Starting Pipecat bot...")
 print("⏳ Loading models and imports (20 seconds first run only)\n")
 
 logger.info("Loading Silero VAD model...")
-from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.silero import SileroVADAnalyzer, VADParams
 
 logger.info("✅ Silero VAD model loaded")
 logger.info("Loading pipeline components...")
@@ -98,11 +98,17 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.services.daily import DailyParams
 
+from pipecat.processors.user_idle_processor import UserIdleProcessor
+from pipecat.frames.frames import TTSSpeakFrame
 
-# Google TTS import (commented out for lower latency)
+
+# Google TTS import (available as alternative)
 # from pipecat.services.google.tts import GoogleHttpTTSService, Language
 
 logger.info("✅ All components loaded successfully!")
+
+
+
 
 # Suppress HeyGen buffer spam by filtering log messages
 import logging
@@ -129,7 +135,6 @@ heygen_logger = logging.getLogger("pipecat.services.heygen.client")
 heygen_logger.addFilter(HeyGenLogFilter())
 
 load_dotenv(override=True)
-
 
 async def start_daily_recording(room_url: str) -> bool:
     """Start recording via Daily REST API when first participant joins."""
@@ -192,6 +197,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         raise ValueError("DEEPGRAM_API_KEY environment variable is required")
     print("✅ DEEPGRAM_API_KEY found")
     
+    # Check for Cartesia API key
     cartesia_key = os.getenv("CARTESIA_API_KEY")
     if not cartesia_key:
         print("❌ CARTESIA_API_KEY not found!")
@@ -204,11 +210,24 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         raise ValueError("OPENAI_API_KEY environment variable is required")
     print("✅ OPENAI_API_KEY found")
     
-    heygen_key = os.getenv("HEYGEN_API_KEY")
-    if not heygen_key:
-        print("❌ HEYGEN_API_KEY not found!")
-        raise ValueError("HEYGEN_API_KEY environment variable is required")
-    print("✅ HEYGEN_API_KEY found")
+    # Check for HeyGen avatar ID from runner args (simple approach)
+    heygen_avatar_id = getattr(runner_args, 'body', {}).get('heygen_avatar_id', '')
+
+    # Enable HeyGen if avatar_id is provided, otherwise check environment
+    if heygen_avatar_id and heygen_avatar_id.strip():
+        # Avatar ID provided via curl - enable HeyGen
+        heygen_key = os.getenv("HEYGEN_API_KEY")
+        if not heygen_key:
+            print("❌ HEYGEN_API_KEY not found but heygen_avatar_id provided!")
+            raise ValueError("HEYGEN_API_KEY environment variable is required when heygen_avatar_id is provided")
+        use_heygen = True
+        print(f"✅ HeyGen enabled via curl - avatar: {heygen_avatar_id}")
+    else:
+        # No avatar ID from curl - disable HeyGen for direct runs
+        use_heygen = False
+        heygen_avatar_id = "Katya_Chair_Sitting_public"  # Default avatar (not used)
+        print("ℹ️ Direct run detected - HeyGen disabled (use curl with heygen_avatar_id to enable)")
+        print("   To enable HeyGen via API: curl -X POST http://localhost:8080/start -d '{\"heygen_avatar_id\":\"avatar_name\"}'")
     print("🔑 All API keys validated!")
 
     print("🎙️ Initializing speech services...")
@@ -221,7 +240,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         print(f"❌ Failed to create Deepgram STT: {e}")
         raise
 
-    # Use Cartesia for lower latency - Google TTS adds significant delay
+    # Use Cartesia TTS as default for lower latency
     try:
         tts = CartesiaTTSService(
             api_key=cartesia_key,
@@ -231,59 +250,89 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     except Exception as e:
         print(f"❌ Failed to create Cartesia TTS: {e}")
         raise
-    
-    # Google TTS alternative (higher latency):
-    # tts = GoogleHttpTTSService(
-    #     credentials=os.getenv("GOOGLE_TEST_CREDENTIALS"),
-    #     voice_id="en-US-Chirp3-HD-Charon",
-    #     params=GoogleHttpTTSService.InputParams(
-    #         language=Language.EN_US
-    #     )
-    # )
+
+    # Google TTS alternative (higher quality but more latency):
+    # # Check for Google credentials file
+    # credentials_file = os.path.join(os.path.dirname(__file__), "GOOGLE_TEST_CREDENTIALS.json")
+    # if os.path.exists(credentials_file):
+    #     try:
+    #         with open(credentials_file, 'r') as f:
+    #             google_credentials = f.read()
+    #         tts = GoogleHttpTTSService(
+    #             credentials=google_credentials,
+    #             voice_id="en-US-Chirp3-HD-Charon",
+    #             params=GoogleHttpTTSService.InputParams(
+    #                 language=Language.EN_US
+    #             )
+    #         )
+    #         print("✅ Google TTS service created")
+    #     except Exception as e:
+    #         print(f"⚠️ Google TTS failed, falling back to Cartesia: {e}")
+    #         tts = CartesiaTTSService(
+    #             api_key=cartesia_key,
+    #             voice_id="71a7ad14-091c-4e8e-a314-022ece01c121",
+    #         )
 
     print("🧠 Initializing LLM service...")
     try:
-        llm = OpenAILLMService(api_key=openai_key)
-        print("✅ OpenAI LLM service created")
+        # Get customizable model from runner args (default to gpt-4o-mini)
+        model = getattr(runner_args, 'body', {}).get('model', 'gpt-4o-mini')
+        llm = OpenAILLMService(api_key=openai_key, model=model)
+        print(f"✅ OpenAI LLM service created ({model})")
     except Exception as e:
         print(f"❌ Failed to create OpenAI LLM: {e}")
         raise
 
-    # Create aiohttp session for HeyGen with optimized timeouts
-    print("🎭 Initializing HeyGen video service...")
-    timeout = aiohttp.ClientTimeout(total=60, connect=15, sock_read=30, sock_connect=15)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        try:
-            print("🎭 Creating HeyGen service instance...")
-            # Configure HeyGen video service with optimizations
-            heygen = HeyGenVideoService(
-                api_key=heygen_key,
-                # video_encoding="H264",
-                quality='High',  # Using string instead of undefined AvatarQuality enum
-                session=session,
-                session_request=NewSessionRequest(
-                    avatar_id="Katya_Chair_Sitting_public"  # Default public avatar
-                ),
-            )
-            print("✅ HeyGen video service created")
+    # Initialize HeyGen service conditionally
+    heygen = None
+    if use_heygen and heygen_key:
+        print("🎭 Initializing HeyGen video service...")
+        timeout = aiohttp.ClientTimeout(total=60, connect=15, sock_read=30, sock_connect=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            try:
+                print("🎭 Creating HeyGen service instance...")
+                # Configure HeyGen video service with optimizations
+                heygen = HeyGenVideoService(
+                    api_key=heygen_key,
+                    # video_encoding="H264",
+                    quality='High',  # Using string instead of undefined AvatarQuality enum
+                    session=session,
+                    session_request=NewSessionRequest(
+                        avatar_id=heygen_avatar_id
+                    ),
+                )
+                print("✅ HeyGen video service created")
 
-            # Note: HeyGen service will be started automatically by the pipeline
-            # when it receives its first frame. No manual start() needed.
-            print("ℹ️ HeyGen service will start automatically when pipeline receives first frame")
+                # Note: HeyGen service will be started automatically by the pipeline
+                # when it receives its first frame. No manual start() needed.
+                print("ℹ️ HeyGen service will start automatically when pipeline receives first frame")
 
-        except Exception as e:
-            print(f"❌ Failed to create HeyGen service: {e}")
-            import traceback
-            print(f"❌ HeyGen creation traceback: {traceback.format_exc()}")
-            raise
+            except Exception as e:
+                print(f"❌ Failed to create HeyGen service: {e}")
+                import traceback
+                print(f"❌ HeyGen creation traceback: {traceback.format_exc()}")
+                raise
+    else:
+        print("🎭 Skipping HeyGen initialization (avatar disabled)")
 
         print("🗨️ Setting up conversation context...")
+
+        # Get customizable parameters from runner args
+        bot_name = getattr(runner_args, 'body', {}).get('bot_name', 'Nano Banana AI')
+        user_name = getattr(runner_args, 'body', {}).get('user_name', 'friend')
+
+        # Get customizable system prompt from runner args
+        system_prompt = getattr(runner_args, 'body', {}).get('system_prompt',
+            f"You are {bot_name}, a fun and helpful AI assistant. Be creative, witty, and always ready to help {user_name}!")
+
         messages: List[ChatCompletionMessageParam] = [
             {
                 "role": "system",
-                "content": "You are Zoe Fragkou, a friendly AI assistant with a visual avatar. Respond naturally and keep your answers conversational. Always introduce yourself as Zoe Fragkou when appropriate.",
+                "content": system_prompt,
             },
         ]
+
+        print(f"📝 Using system prompt: {system_prompt[:50]}...")
 
         try:
             context = OpenAILLMContext(messages)
@@ -300,30 +349,55 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             print(f"❌ Failed to create RTVI processor: {e}")
             raise
 
-        print("🔧 Building pipeline...")
-        try:
-            pipeline = Pipeline(
-                [
-                    transport.input(),  # Transport user input
-                    rtvi,  # RTVI processor
-                    stt,
-                    context_aggregator.user(),  # User responses
-                    llm,  # LLM
-                    tts,  # TTS
-                    heygen,  # HeyGen avatar video generation
-                    transport.output(),  # Transport bot output
-                    context_aggregator.assistant(),  # Assistant spoken responses
-                ]
-            )
-            print("✅ Pipeline created successfully")
-        except Exception as e:
-            print(f"❌ Failed to create pipeline: {e}")
-            raise
+        print("🔧 Building pipelines...")
+        # Create the idle detection callback
+        async def handle_user_idle(processor):
+            # await processor.push_frame(TTSSpeakFrame("Are you still there?"))
+            messages.append({"role": "system", "content": "Aks user a single time: Are you still there? but each time in a differnt mathcing tone and ask directly, its  alive conresation. keep it short"})
+            await task.queue_frames([LLMMessagesUpdateFrame(messages=cast(list, messages), run_llm=True)])
+                    
+        # Create the processor with 10-second timeout
+        user_idle = UserIdleProcessor(
+            callback=handle_user_idle,
+            timeout=10.0  # 10 seconds of silence
+        )
+        # Create conditional pipelines based on HeyGen availability
+        if use_heygen and heygen:
+            print("🎭 Creating pipeline WITH HeyGen avatar...")
+            # Pipeline with voice + HeyGen
+            main_pipeline = Pipeline([
+                transport.input(),  # Transport user input
+                rtvi,  # RTVI processor
+                stt,  # Speech-to-Text
+                user_idle,                   # Add idle detection here
+                context_aggregator.user(),  # User responses
+                llm,  # Language Model
+                tts,  # Text-to-Speech
+                heygen,  # HeyGen avatar
+                transport.output(),  # Transport bot output
+                context_aggregator.assistant(),  # Assistant responses
+            ])
+            print("✅ Pipeline with HeyGen created")
+        else:
+            print("🎵 Creating pipeline WITHOUT HeyGen (voice only)...")
+            # Pipeline with voice only
+            main_pipeline = Pipeline([
+                transport.input(),  # Transport user input
+                rtvi,  # RTVI processor
+                stt,  # Speech-to-Text
+                user_idle,                   # Add idle detection here
+                context_aggregator.user(),  # User responses
+                llm,  # Language Model
+                tts,  # Text-to-Speech
+                transport.output(),  # Transport bot output
+                context_aggregator.assistant(),  # Assistant responses
+            ])
+            print("✅ Pipeline without HeyGen created")
 
         print("📋 Creating pipeline task...")
         try:
             task = PipelineTask(
-                pipeline,
+                main_pipeline,
                 params=PipelineParams(
                     enable_metrics=True,
                     enable_usage_metrics=True,
@@ -341,10 +415,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             print(f"👋 Client connected: {client}")
             logger.info(f"Client connected")
             try:
+                # Get customizable first message from runner args
+                first_message = getattr(runner_args, 'body', {}).get('first_message',
+                    f"Say hi to {user_name}! I'm {bot_name}, your fun AI assistant ready to help with a smile!")
+
                 # Kick off the conversation.
-                messages.append({"role": "system", "content": "Say hello and introduce yourself as Zoe Fragkou, a friendly AI assistant with a visual avatar."})
+                messages.append({"role": "system", "content": first_message})
                 await task.queue_frames([LLMMessagesUpdateFrame(messages=cast(list, messages), run_llm=True)])
-                print("✅ Initial message queued")
+                print(f"✅ Initial message queued: {first_message[:50]}...")
             except Exception as e:
                 print(f"❌ Error in client connected handler: {e}")
                 import traceback
@@ -409,38 +487,65 @@ async def bot(runner_args: RunnerArguments):
     print("🎯 Bot entry point called")
     print(f"🔍 Runner args: {runner_args}")
 
-    # Only support Daily transport
-    print("🚗 Setting up transport parameters...")
+    # Check if this is a direct run or API run
+    is_direct_run = not hasattr(runner_args, 'room_url') or not getattr(runner_args, 'room_url', None)
+
+    if is_direct_run:
+        print("🔧 Direct run detected - using WebRTC transport for local audio")
+        transport_type = "webrtc"
+
+        # Audio device check removed to avoid linter warnings
+        # (sounddevice import was causing "could not be resolved" error)
+    else:
+        print("🔧 API run detected - using Daily transport")
+        transport_type = "daily"
+
+    print(f"🚗 Setting up {transport_type} transport parameters...")
     transport_params = {
         "daily": lambda: DailyParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            video_out_enabled=True,  # Enable video output for avatar
-            video_out_is_live=True,  # Real-time video streaming
-            video_out_width=1920,  # Portrait: 1080x1920
-            video_out_height=1080,
-            # audio_out_sample_rate=16000,  # Standard rate for better compatibility
-            # camera_out_bitrate=8000,
-
-            vad_analyzer=SileroVADAnalyzer(),
+            video_out_enabled=False,  # Disable video for direct runs
+            video_out_is_live=False,  # No live streaming for direct runs
+            vad_analyzer=SileroVADAnalyzer(
+                params=VADParams(
+                start_secs=0,
+                stop_secs=0,
+                confidence=0.5,
+                min_volume=0.5
+                )
+            ),
         ),
-          "webrtc": lambda: TransportParams(
+        "webrtc": lambda: TransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
             vad_analyzer=SileroVADAnalyzer(),
-            video_out_enabled=True,  # Enable video output for avatar
-            video_out_is_live=True,  # Real-time video streaming
-            video_out_width=1080,  # Portrait: 1080x1920
-            video_out_height=1920,
+            video_out_enabled=False,  # Disable video for direct runs
+            video_out_is_live=False,  # No live streaming for direct runs
         ),
     }
 
     print("🚗 Creating transport...")
     try:
-        transport = await create_transport(runner_args, transport_params)
-        print(f"✅ Transport created: {type(transport)}")
+        # For direct runs, modify runner_args to use webrtc transport
+        if is_direct_run:
+            # Create a mock runner args for webrtc transport
+            from types import SimpleNamespace
+            webrtc_runner_args = SimpleNamespace()
+            webrtc_runner_args.transport = "webrtc"
+            webrtc_runner_args.room_url = None
+            webrtc_runner_args.token = None
+            webrtc_runner_args.body = getattr(runner_args, 'body', {})
+            print("🔧 Creating WebRTC transport for direct run...")
+            transport = await create_transport(webrtc_runner_args, transport_params)
+            print(f"✅ WebRTC Transport created for direct run: {type(transport)}")
+        else:
+            transport = await create_transport(runner_args, transport_params)
+            print(f"✅ Transport created: {type(transport)}")
     except Exception as e:
         print(f"❌ Failed to create transport: {e}")
+        if is_direct_run:
+            print("💡 For direct runs, make sure you have proper audio devices configured")
         raise
 
     print("🤖 Starting bot...")
