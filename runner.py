@@ -201,6 +201,56 @@ class PipecatRunner:
             """Serve WebRTC client interface."""
             return self.templates.TemplateResponse("webrtc_client.html", {"request": request})
 
+        @self.app.post("/start")
+        async def start_webrtc_session(request: Request):
+            """RTVI-compatible /start endpoint for WebRTC transport."""
+            try:
+                data = await request.json()
+                body = data.get("body", {})
+                tts = data.get("tts", {})
+                
+                # Extract heygen_avatar_id from root level if present
+                heygen_avatar_id = data.get("heygen_avatar_id") or body.get("heygen_avatar_id")
+                print(f"DEBUG: WebRTC heygen_avatar_id = {heygen_avatar_id}, data keys = {list(data.keys())}")
+
+                bot_name = body.get("bot_name", "Nano Banana AI")
+                user_name = body.get("user_name", "friend")
+
+                # Spawn bot in background for WebRTC
+                task_id = f"webrtc_{len(self.active_tasks)}"
+                
+                task = asyncio.create_task(
+                    self._spawn_bot(
+                        # Create a mock runner args for WebRTC
+                        type('MockRunner', (), {
+                            'transport': 'webrtc',
+                            'room_url': None,
+                            'token': None,
+                            'body': {"body": body, "tts": tts, "heygen_avatar_id": heygen_avatar_id} if heygen_avatar_id else {"body": body, "tts": tts},
+                            'handle_sigint': False
+                        })(),
+                        task_id
+                    )
+                )
+                self.active_tasks[task_id] = task
+
+                # Build simple response for WebRTC
+                response = {
+                    "status": "started",
+                    "transport": "webrtc",
+                    "bot_name": bot_name,
+                    "user_name": user_name,
+                    "avatar_enabled": bool(heygen_avatar_id),
+                    "session_id": task_id,
+                    "note": "WebRTC bot started - use browser WebRTC client to connect"
+                }
+
+                return JSONResponse(content=response)
+
+            except Exception as e:
+                logger.error(f"Error starting WebRTC session: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
     def _setup_daily_routes(self):
         """Setup Daily-specific routes."""
         # We'll use HTTP requests to Daily REST API instead of SDK
