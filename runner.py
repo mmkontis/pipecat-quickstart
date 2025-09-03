@@ -29,7 +29,7 @@ from typing import Any, Dict, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -140,7 +140,7 @@ class PipecatRunner:
         @self.app.get("/health")
         async def health():
             """Health check endpoint."""
-            return {"status": "healthy", "transport": self.transport}
+            return JSONResponse(content={"status": "healthy", "transport": self.transport})
 
         # WebRTC routes
         if self.transport == "webrtc":
@@ -173,6 +173,12 @@ class PipecatRunner:
                 create_room = data.get("createDailyRoom", True)
                 room_properties = data.get("dailyRoomProperties", {})
                 body = data.get("body", {})
+                tts = data.get("tts", {})
+
+                # Extract heygen_avatar_id from root level if present
+                heygen_avatar_id = data.get("heygen_avatar_id") or body.get("heygen_avatar_id")
+                print(f"DEBUG: heygen_avatar_id = {heygen_avatar_id}, data keys = {list(data.keys())}")
+
                 bot_name = body.get("bot_name", "Nano Banana AI")
                 user_name = body.get("user_name", "friend")
                 api_key = os.getenv("DAILY_API_KEY")
@@ -283,7 +289,7 @@ class PipecatRunner:
                         DailyRunnerArguments(
                             room_url=bot_room_url,
                             token=bot_token if 'bot_token' in locals() else token,
-                            body=body,
+                            body={"body": body, "tts": tts, "heygen_avatar_id": heygen_avatar_id} if heygen_avatar_id else {"body": body, "tts": tts},
                         ),
                         task_id
                     )
@@ -338,8 +344,8 @@ class PipecatRunner:
                         ]
                     },
                     "avatar": {
-                        "enabled": False,
-                        "provider": None,
+                        "enabled": bool(heygen_avatar_id),
+                        "provider": "heygen" if heygen_avatar_id else None,
                         "usage": "Include 'heygen_avatar_id' in request body to enable HeyGen avatar",
                         "example": "curl -X POST /start -d '{\"heygen_avatar_id\":\"Katya_Chair_Sitting_public\"}'"
                     },
@@ -368,7 +374,7 @@ class PipecatRunner:
                     }
                 }
 
-                return response
+                return JSONResponse(content=response)
 
             except Exception as e:
                 logger.error(f"Error starting Daily session: {e}")
@@ -388,7 +394,7 @@ class PipecatRunner:
             # Implementation depends on specific provider
             data = await request.json()
             logger.info(f"Received {self.transport} webhook: {data}")
-            return {"status": "ok"}
+            return JSONResponse(content={"status": "ok"})
 
 
 

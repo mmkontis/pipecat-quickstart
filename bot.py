@@ -40,7 +40,7 @@ import requests
 
 from dotenv import load_dotenv
 from loguru import logger
-from pipecat.frames.frames import LLMMessagesUpdateFrame
+from pipecat.frames.frames import LLMMessagesUpdateFrame, StartFrame
 from typing import List, cast
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -100,6 +100,8 @@ from pipecat.transports.services.daily import DailyParams
 
 from pipecat.processors.user_idle_processor import UserIdleProcessor
 from pipecat.frames.frames import TTSSpeakFrame
+from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.frames.frames import TextFrame
 
 
 # Google TTS import (available as alternative)
@@ -211,7 +213,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     print("✅ OPENAI_API_KEY found")
     
     # Check for HeyGen avatar ID from runner args (simple approach)
-    heygen_avatar_id = getattr(runner_args, 'body', {}).get('heygen_avatar_id', '')
+    body_data = getattr(runner_args, 'body', {})
+    heygen_avatar_id = body_data.get('heygen_avatar_id', '')
 
     # Enable HeyGen if avatar_id is provided, otherwise check environment
     if heygen_avatar_id and heygen_avatar_id.strip():
@@ -242,9 +245,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
 
     # Use Cartesia TTS as default for lower latency
     try:
+        body_data = getattr(runner_args, 'body', {})
+        voice_id = body_data.get('tts', {}).get('voice_id', '71a7ad14-091c-4e8e-a314-022ece01c121')
         tts = CartesiaTTSService(
             api_key=cartesia_key,
-            voice_id="71a7ad14-091c-4e8e-a314-022ece01c121",  # British Reading Lady
+            voice_id=voice_id,  # Configurable voice ID (default: British Reading Lady)
         )
         print("✅ Cartesia TTS service created")
     except Exception as e:
@@ -276,7 +281,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     print("🧠 Initializing LLM service...")
     try:
         # Get customizable model from runner args (default to gpt-4o-mini)
-        model = getattr(runner_args, 'body', {}).get('model', 'gpt-4o-mini')
+        model = body_data.get('body', {}).get('model', 'gpt-4o-mini')
         llm = OpenAILLMService(api_key=openai_key, model=model)
         print(f"✅ OpenAI LLM service created ({model})")
     except Exception as e:
@@ -350,15 +355,73 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             raise
 
         print("🔧 Building pipelines...")
-        # Create the idle detection callback
-        async def handle_user_idle(processor):
-            # await processor.push_frame(TTSSpeakFrame("Are you still there?"))
-            messages.append({"role": "system", "content": "Aks user a single time: Are you still there? but each time in a differnt mathcing tone and ask directly, its  alive conresation. keep it short"})
-            await task.queue_frames([LLMMessagesUpdateFrame(messages=cast(list, messages), run_llm=True)])
-                    
+
+        # Create a class to track consecutive idle events
+        class IdleTracker:
+            def __init__(self):
+                self.consecutive_idle_count = 0
+                self.conversation_ended = False
+                self.continuous_idle_time_seconds = 0  # Changed to continuous tracking
+
+
+
+            async def handle_idle(self, processor):
+                # Add 10 seconds to continuous idle time
+                self.continuous_idle_time_seconds += 10
+
+                # Log continuous idle time every 5 seconds
+                if self.continuous_idle_time_seconds % 5 == 0:
+                    print(f"⏱️ Continuous idle time: {self.continuous_idle_time_seconds}s")
+
+                # Check if continuous idle time exceeds 10 seconds
+                if self.continuous_idle_time_seconds > 120:
+                    print("⏰ Continuous idle time exceeded 120 seconds - cancelling task")
+                    try:
+                        _ = task.cancel()
+                        print("✅ Task cancelled due to extended idle time")
+                        return
+                    except Exception as e:
+                        print(f"⚠️ Error cancelling task: {e}")
+
+                # If conversation has ended, don't do normal idle processing
+                if self.conversation_ended:
+                    print("🚫 Conversation ended - skipping normal idle processing")
+                    return
+
+                self.consecutive_idle_count += 1
+                print(f"🕐 Idle event #{self.consecutive_idle_count} detected (continuous idle: {self.continuous_idle_time_seconds}s)")
+
+                if self.consecutive_idle_count <= 2:
+                    # First and second idle: ask if still there
+                    tone_variations = [
+                        "with a friendly, concerned tone",
+                        "with a casual, checking-in tone"
+                    ]
+                    tone = tone_variations[self.consecutive_idle_count - 1]
+                    messages.append({
+                        "role": "system",
+                        "content": f"Ask the user directly: Are you still there? Use {tone}. Keep it short and natural."
+                    })
+                    await task.queue_frames([LLMMessagesUpdateFrame(messages=cast(list, messages), run_llm=True)])
+                else:
+                    # Third idle: say goodbye and end conversation
+                    print("👋 Third consecutive idle - ending conversation permanently")
+                    messages.append({
+                        "role": "system",
+                        "content": "Say a friendly goodbye to the user. Something like 'Ok, I think you might have stepped away. Talk to you later!' Keep it warm and natural."
+                    })
+                    await task.queue_frames([LLMMessagesUpdateFrame(messages=cast(list, messages), run_llm=True)])
+
+                    # Mark conversation as ended - no more idle checking
+                    self.conversation_ended = True
+
+        idle_tracker = IdleTracker()
+
+
+
         # Create the processor with 10-second timeout
         user_idle = UserIdleProcessor(
-            callback=handle_user_idle,
+            callback=idle_tracker.handle_idle,
             timeout=10.0  # 10 seconds of silence
         )
         # Create conditional pipelines based on HeyGen availability
@@ -434,7 +497,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             print(f"👋 Client disconnected: {client}")
             logger.info(f"Client disconnected")
             try:
-                await task.cancel()
+                _ = task.cancel()
                 print("✅ Task cancelled")
             except Exception as e:
                 print(f"❌ Error in client disconnected handler: {e}")
