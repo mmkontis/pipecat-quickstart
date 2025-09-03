@@ -4,35 +4,30 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-"""Pipecat Daily Bot Example.
+"""Pipecat Daily Video Bot with HeyGen Avatar.
 
-The example runs a simple voice AI bot using Daily transport that you can 
-connect to using Daily rooms. You can also deploy this bot to Pipecat Cloud.
+This bot supports both voice conversations and HeyGen video avatars. It runs using 
+Daily transport and can be deployed to Pipecat Cloud.
 
 Required AI services:
 - Deepgram (Speech-to-Text)
 - OpenAI (LLM)
 - Cartesia (Text-to-Speech)
-- HeyGen (Video Avatar)
+- HeyGen (Video Avatar) - REQUIRED
 
 Required environment variables:
 - DEEPGRAM_API_KEY
 - OPENAI_API_KEY  
 - CARTESIA_API_KEY
-- HEYGEN_API_KEY
+- HEYGEN_API_KEY - REQUIRED for video bot
 - DAILY_API_KEY (for runner)
 
-Run the bot using::
-
-    uv run bot.py
-    
-Or use the development runner::
-
-    uv run python runner.py
+This file is automatically used when heygen_avatar_id is provided via curl.
 """
 
 import os
 import sys
+import aiohttp
 import psutil
 import gc
 import requests
@@ -90,6 +85,9 @@ from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.heygen.video import HeyGenVideoService
+from pipecat.services.heygen.api import NewSessionRequest
+from pipecat.services.heygen.client import HeyGenClient
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.services.daily import DailyParams
@@ -108,7 +106,29 @@ logger.info("✅ All components loaded successfully!")
 
 
 
-# Voice-only bot - no HeyGen dependencies
+# Suppress HeyGen buffer spam by filtering log messages
+import logging
+
+class HeyGenLogFilter(logging.Filter):
+    """Filter to suppress noisy HeyGen buffer events"""
+    
+    def filter(self, record):
+        # Suppress specific HeyGen buffer messages
+        if "HeyGenClient ws received unknown event:" in record.getMessage():
+            message = record.getMessage()
+            if any(event in message for event in [
+                "agent.audio_buffer_appended",
+                "agent.audio_buffer_committed", 
+                "agent.audio_buffer_cleared",
+                "agent.speak_ended",
+                "agent.idle_started"
+            ]):
+                return False
+        return True
+
+# Apply the filter to suppress HeyGen buffer spam
+heygen_logger = logging.getLogger("pipecat.services.heygen.client")
+heygen_logger.addFilter(HeyGenLogFilter())
 
 load_dotenv(override=True)
 
@@ -164,7 +184,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     print(f"🔍 Transport type: {type(transport)}")
     log_memory_usage()
 
-
+    # Initialize session variable at function scope for cleanup
+    heygen_session = None
 
     # Get API keys with error handling
     print("🔑 Checking API keys...")
@@ -188,8 +209,31 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         raise ValueError("OPENAI_API_KEY environment variable is required")
     print("✅ OPENAI_API_KEY found")
     
+    # Check for HeyGen avatar ID from runner args
+    body_data = getattr(runner_args, 'body', {})
+    print(f"🔍 DEBUG: body_data structure = {body_data}")
+    # Try to get heygen_avatar_id from the correct nested structure
+    heygen_avatar_id = (
+        body_data.get('heygen_avatar_id', '') or  # Direct access (for backward compatibility)
+        body_data.get('body', {}).get('heygen_avatar_id', '')  # Nested access (current structure)
+    )
+    print(f"🔍 DEBUG: extracted heygen_avatar_id = '{heygen_avatar_id}'")
+
+    # Use default avatar if none provided
+    if not (heygen_avatar_id and heygen_avatar_id.strip()):
+        heygen_avatar_id = "Thaddeus_Chair_Sitting_public"
+        print(f"ℹ️ No heygen_avatar_id provided, using default: {heygen_avatar_id}")
+    else:
+        print(f"✅ Using provided heygen_avatar_id: {heygen_avatar_id}")
+    
+    # HeyGen API key is required for video bot
+    heygen_key = os.getenv("HEYGEN_API_KEY")
+    if not heygen_key:
+        print("❌ HEYGEN_API_KEY not found but required for video bot!")
+        raise ValueError("HEYGEN_API_KEY environment variable is required for video bot")
+    
     print("🔑 All API keys validated!")
-    print("🎵 Voice-only bot - no video avatar support")
+    print(f"🎭 Video bot with HeyGen avatar: {heygen_avatar_id}")
 
     print("🎙️ Initializing speech services...")
     try:
@@ -248,6 +292,36 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         print(f"✅ OpenAI LLM service created ({model})")
     except Exception as e:
         print(f"❌ Failed to create OpenAI LLM: {e}")
+        raise
+
+    # Initialize HeyGen service (required for video bot)
+    print("🎭 Initializing HeyGen video service...")
+    try:
+        print("🎭 Creating persistent aiohttp session for HeyGen...")
+        # Create a persistent session for HeyGen to use throughout its lifecycle
+        timeout = aiohttp.ClientTimeout(total=60, connect=15, sock_read=30, sock_connect=15)
+        heygen_session = aiohttp.ClientSession(timeout=timeout)
+        
+        print("🎭 Creating HeyGen service instance...")
+        # Configure HeyGen video service with persistent session
+        heygen = HeyGenVideoService(
+            api_key=heygen_key,
+            # video_encoding="H264", 
+            # quality='High',  # Using string instead of undefined AvatarQuality enum
+            session=heygen_session,
+            session_request=NewSessionRequest(
+                avatar_id=heygen_avatar_id
+            ),
+        )
+        print("✅ HeyGen video service created")
+        print("ℹ️ HeyGen service will start automatically when pipeline receives first frame")
+
+    except Exception as e:
+        print(f"❌ Failed to create HeyGen service: {e}")
+        if heygen_session:
+            await heygen_session.close()
+        import traceback
+        print(f"❌ HeyGen creation traceback: {traceback.format_exc()}")
         raise
 
     print("🗨️ Setting up conversation context...")
@@ -383,8 +457,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         callback=idle_tracker.handle_idle,
         timeout=10.0  # 10 seconds of silence
     )
-    # Create voice-only pipeline
-    print("🎵 Creating voice-only pipeline...")
+    # Create video pipeline with HeyGen avatar
+    print("🎭 Creating video pipeline with HeyGen avatar...")
     main_pipeline = Pipeline([
         transport.input(),  # Transport user input
         activity_detector,  # Detect user activity and reset idle timer
@@ -394,10 +468,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         context_aggregator.user(),  # User responses
         llm,  # Language Model
         tts,  # Text-to-Speech
+        heygen,  # HeyGen avatar
         transport.output(),  # Transport bot output
         context_aggregator.assistant(),  # Assistant responses
     ])
-    print("✅ Voice-only pipeline created")
+    print("✅ Video pipeline with HeyGen created")
 
     print("📋 Creating pipeline task...")
     try:
@@ -488,6 +563,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         raise
     finally:
         print("🔚 Pipeline task finished (completed or crashed)")
+        # Cleanup HeyGen session if it exists
+        if heygen_session is not None:
+            print("🧹 Cleaning up HeyGen session...")
+            try:
+                await heygen_session.close()
+                print("✅ HeyGen session closed")
+            except Exception as e:
+                print(f"⚠️ Error closing HeyGen session: {e}")
 
 
 async def bot(runner_args: RunnerArguments):
@@ -509,14 +592,14 @@ async def bot(runner_args: RunnerArguments):
         transport_type = "daily"
 
     print(f"🚗 Setting up {transport_type} transport parameters...")
-    print("🎥 Video output disabled - voice-only bot")
+    print("🎥 Video output enabled - HeyGen avatar bot")
     
     transport_params = {
         "daily": lambda: DailyParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            video_out_enabled=False,  # Voice-only bot - no video
-            video_out_is_live=False,  # Voice-only bot - no video
+            video_out_enabled=True,  # Enable video for HeyGen avatar
+            video_out_is_live=True,  # Enable live video for HeyGen avatar
             vad_analyzer=SileroVADAnalyzer(
                 params=VADParams(
                 start_secs=0,
@@ -530,8 +613,8 @@ async def bot(runner_args: RunnerArguments):
             audio_in_enabled=True,
             audio_out_enabled=True,
             vad_analyzer=SileroVADAnalyzer(),
-            video_out_enabled=False,  # Voice-only bot - no video
-            video_out_is_live=False,  # Voice-only bot - no video
+            video_out_enabled=True,  # Enable video for HeyGen avatar
+            video_out_is_live=True,  # Enable live video for HeyGen avatar
         ),
     }
 

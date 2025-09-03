@@ -142,6 +142,46 @@ class PipecatRunner:
             """Health check endpoint."""
             return JSONResponse(content={"status": "healthy", "transport": self.transport})
 
+        @self.app.get("/capabilities")
+        async def capabilities():
+            """API capabilities and documentation endpoint."""
+            return JSONResponse(content={
+                "llm": {
+                    "default_model": "gpt-4o-mini",
+                    "available_models": [
+                        "gpt-5",
+                        "gpt-5-mini", 
+                        "gpt-5-nano",
+                        "gpt-4o-mini",
+                        "claude-3-5-haiku-latest",
+                        "claude-sonnet-4-20250514"
+                    ]
+                },
+                "tts": {
+                    "default_provider": "cartesia",
+                    "providers": ["openai", "cartesia", "google", "elevenlabs"]
+                },
+                "avatar": {
+                    "provider": "heygen",
+                    "usage": "Include 'heygen_avatar_id' in request body to enable HeyGen avatar",
+                    "example": "curl -X POST /start -d '{\"heygen_avatar_id\":\"Katya_Chair_Sitting_public\"}'"
+                },
+                "customization": {
+                    "system_prompt": {
+                        "description": "Customize the AI assistant's system prompt",
+                        "example": "curl -X POST /start -d '{\"system_prompt\":\"You are a helpful assistant...\"}'"
+                    },
+                    "bot_name": {
+                        "description": "Customize the AI assistant's name",
+                        "example": "curl -X POST /start -d '{\"bot_name\":\"Zoe Fragkou\"}'"
+                    },
+                    "user_name": {
+                        "description": "Specify the user's name for personalized conversation",
+                        "example": "curl -X POST /start -d '{\"user_name\":\"John\"}'"
+                    }
+                }
+            })
+
         # WebRTC routes
         if self.transport == "webrtc":
             self._setup_webrtc_routes()
@@ -303,75 +343,14 @@ class PipecatRunner:
                 # HeyGen is only enabled when explicitly requested via heygen_avatar_id
                 heygen_enabled = False
 
-                # Build response with LLM, TTS declarations and pipeline info
+                # Build clean response with essential information only
                 response = {
-                    "clickable_room_link": clickable_room_link,
-                    "llm": {
-                        "default_model": "gpt-4o-mini",
-                        "available_models": [
-                            "gpt-5",
-                            "gpt-5-mini",
-                            "gpt-5-nano",
-                            "gpt-4o-mini",
-                            "claude-3-5-haiku-latest",
-                            "claude-sonnet-4-20250514"
-                        ]
-                    },
-                    "tts": {
-                        "default_provider": "cartesia",
-                        "providers": [
-                            "openai",
-                            "cartesia",
-                            "google",
-                            "elevenlabs"
-                        ]
-                    },
-                    "pipeline": {
-                        "architecture": "conditional_dual_pipeline",
-                        "pipelines": [
-                            {
-                                "name": "voice_only_pipeline",
-                                "condition": "no heygen_avatar_id provided",
-                                "components": ["transport", "rtvi", "stt", "llm", "tts"],
-                                "purpose": "Voice conversation without avatar"
-                            },
-                            {
-                                "name": "voice_with_avatar_pipeline",
-                                "condition": "heygen_avatar_id provided",
-                                "components": ["transport", "rtvi", "stt", "llm", "tts", "heygen"],
-                                "purpose": "Voice conversation with avatar"
-                            }
-                        ]
-                    },
-                    "avatar": {
-                        "enabled": bool(heygen_avatar_id),
-                        "provider": "heygen" if heygen_avatar_id else None,
-                        "usage": "Include 'heygen_avatar_id' in request body to enable HeyGen avatar",
-                        "example": "curl -X POST /start -d '{\"heygen_avatar_id\":\"Katya_Chair_Sitting_public\"}'"
-                    },
-                    "customization": {
-                        "system_prompt": {
-                            "description": "Customize the AI assistant's system prompt",
-                            "default": "You are Nano Banana AI, a fun and helpful AI assistant...",
-                            "example": "curl -X POST /start -d '{\"system_prompt\":\"You are a helpful assistant...\"}'"
-                        },
-                        "first_message": {
-                            "description": "Customize the first message the AI sends",
-                            "default": "Say hi to Nano Banana! I'm your fun AI assistant...",
-                            "example": "curl -X POST /start -d '{\"first_message\":\"Hello! I am your AI assistant.\"}'"
-                        },
-                        "bot_name": {
-                            "description": "Customize the AI assistant's name",
-                            "default": "Nano Banana AI",
-                            "example": "curl -X POST /start -d '{\"bot_name\":\"Zoe Fragkou\"}'"
-                        },
-                        "user_name": {
-                            "description": "Specify the user's name for personalized conversation",
-                            "default": "friend",
-                            "example": "curl -X POST /start -d '{\"user_name\":\"John\"}'"
-                        },
-                        "combined_example": "curl -X POST /start -d '{\"system_prompt\":\"You are a helpful assistant\",\"first_message\":\"Hello!\",\"bot_name\":\"Zoe Fragkou\",\"user_name\":\"John\",\"heygen_avatar_id\":\"avatar_name\"}'"
-                    }
+                    "status": "started",
+                    "room_url": clickable_room_link,
+                    "bot_name": bot_name,
+                    "user_name": user_name,
+                    "avatar_enabled": bool(heygen_avatar_id),
+                    "session_id": task_id
                 }
 
                 return JSONResponse(content=response)
@@ -405,10 +384,27 @@ class PipecatRunner:
         try:
             logger.info(f"Spawning bot instance: {task_id}")
 
-            # Import the bot function from bot.py
-            spec = importlib.util.spec_from_file_location("bot_module", "bot.py")
+            # Determine which bot file to use based on heygen_avatar_id
+            body_data = getattr(runner_args, 'body', {})
+            heygen_avatar_id = (
+                body_data.get('heygen_avatar_id', '') or
+                body_data.get('body', {}).get('heygen_avatar_id', '')
+            )
+            
+            # Check if any heygen-related parameter is provided or if user requests video bot
+            use_video_bot = bool(heygen_avatar_id and heygen_avatar_id.strip())
+            
+            if use_video_bot:
+                bot_file = "videobot.py"
+                logger.info(f"Using video bot with HeyGen avatar: {heygen_avatar_id}")
+            else:
+                bot_file = "bot.py"
+                logger.info("Using voice-only bot")
+            
+            # Import the bot function from the appropriate file
+            spec = importlib.util.spec_from_file_location("bot_module", bot_file)
             if spec is None:
-                logger.error("Could not find bot.py file")
+                logger.error(f"Could not find {bot_file} file")
                 return
             bot_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(bot_module)
@@ -416,7 +412,7 @@ class PipecatRunner:
             # Get the bot function
             bot_func = getattr(bot_module, "bot", None)
             if not bot_func:
-                logger.error("No 'bot' function found in bot.py")
+                logger.error(f"No 'bot' function found in {bot_file}")
                 return
 
             # Call the bot function
