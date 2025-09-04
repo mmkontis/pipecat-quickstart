@@ -369,7 +369,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         def __init__(self):
             self.consecutive_idle_count = 0
             self.conversation_ended = False
-            self.continuous_idle_time_seconds = 0  # Changed to continuous tracking
+            self.continuous_idle_time_seconds =0  # Changed to continuous tracking
 
         def reset_idle_timer(self):
             """Reset the continuous idle timer when user speaks"""
@@ -386,7 +386,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                 print(f"⏱️ Continuous idle time: {self.continuous_idle_time_seconds}s")
 
             # Check if continuous idle time exceeds 10 seconds
-            if self.continuous_idle_time_seconds > 120:
+            if self.continuous_idle_time_seconds > 200:
                 print("⏰ Continuous idle time exceeded 120 seconds - cancelling task")
                 try:
                     cancelled = task.cancel()
@@ -456,7 +456,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     # Create the processor with 10-second timeout
     user_idle = UserIdleProcessor(
         callback=idle_tracker.handle_idle,
-        timeout=10.0  # 10 seconds of silence
+        timeout=15.0  # 10 seconds of silence
     )
     # Create video pipeline with HeyGen avatar
     print("🎭 Creating video pipeline with HeyGen avatar...")
