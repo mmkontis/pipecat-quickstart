@@ -135,13 +135,13 @@ async def start_daily_recording(room_url: str) -> bool:
             },
             json={
                 "type": "cloud",  # Use cloud recording
-                "layout": {
-                        "preset": "portrait",
-                        "variant": "vertical"
-                    },
-                "width": 1080,
-                "height": 1920,
-                "backgroundColor": "#000000"
+                # "layout": {
+                #         "preset": "portrait",
+                #         "variant": "vertical"
+                #     },
+                # "width": 1080,
+                # "height": 1920,
+                # "backgroundColor": "#000000"
                 
             }
         )
