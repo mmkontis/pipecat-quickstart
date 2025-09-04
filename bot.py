@@ -387,7 +387,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     # Create the processor with 10-second timeout
     user_idle = UserIdleProcessor(
         callback=idle_tracker.handle_idle,
-        timeout=30.0  # 10 seconds of silence
+        timeout=15.0  # 10 seconds of silence
     )
     # Create voice-only pipeline
     print("🎵 Creating voice-only pipeline...")
