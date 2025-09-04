@@ -504,7 +504,45 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     @transport.event_handler("on_participant_left")
     async def on_participant_left(transport, participant):
         print(f"👋 Participant left: {participant}")
+        try:
+            # Send full conversation context/transcript to webhook
+            webhook_url = "https://tryhumanlike.com/api/webhook/note"
+            webhook_data = {
+                "client_id": str(participant),
+                "disconnect_time": str(datetime.now()),
+                "conversation_context": messages,  # Full transcript/context
+                "bot_name": bot_name,
+                "user_name": user_name,
+                "total_messages": len(messages),
+                "idle_tracker": {
+                    "consecutive_idle_count": idle_tracker.consecutive_idle_count,
+                    "conversation_ended": idle_tracker.conversation_ended,
+                    "continuous_idle_time_seconds": idle_tracker.continuous_idle_time_seconds
+                }
+            }
 
+            try:
+                response = requests.post(
+                    webhook_url,
+                    json=webhook_data,
+                    headers={"Content-Type": "application/json"},
+                    timeout=5  # 5 second timeout
+                )
+                if response.status_code == 200:
+                    print(f"✅ Webhook sent successfully to {webhook_url}")
+                else:
+                    print(f"⚠️ Webhook failed with status {response.status_code}: {response.text}")
+            except Exception as webhook_error:
+                print(f"⚠️ Webhook request failed: {webhook_error}")
+
+            await task.cancel()
+            print(f"✅ Task cancellation requested: {await task.cancel()}")
+        except Exception as e:
+            print(f"❌ Error in participant left handler: {e}")
+            import traceback
+            print(f"❌ Full traceback: {traceback.format_exc()}")
+            raise
+        
     @transport.event_handler("on_call_state_updated")
     async def on_call_state_updated(transport, state):
         print(f"📞 Call state updated: {state}")
