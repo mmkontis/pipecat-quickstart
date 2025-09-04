@@ -317,7 +317,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                 print(f"⏱️ Continuous idle time: {self.continuous_idle_time_seconds}s")
 
             # Check if continuous idle time exceeds 10 seconds
-            if self.continuous_idle_time_seconds > 500:
+            if self.continuous_idle_time_seconds > 200:
                 print("⏰ Continuous idle time exceeded 500 seconds - cancelling task")
                 try:
                     cancelled = task.cancel()
