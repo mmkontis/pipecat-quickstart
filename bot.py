@@ -37,6 +37,7 @@ import psutil
 import gc
 import requests
 from datetime import datetime
+from pipecat.transcriptions.language import Language
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -90,7 +91,7 @@ from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIObserver, RTVIPro
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.services.daily import DailyParams
@@ -194,7 +195,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
 
     print("🎙️ Initializing speech services...")
     try:
-        stt = DeepgramSTTService(api_key=deepgram_key)
+        stt = DeepgramSTTService(api_key=deepgram_key, live_options=LiveOptions(
+        model="nova-3-general",
+        language=Language.EN,
+        smart_format=True
+    ) )
 
         
         print("✅ Deepgram STT service created")
@@ -473,8 +478,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             except Exception as webhook_error:
                 print(f"⚠️ Webhook request failed: {webhook_error}")
 
-            cancelled = task.cancel()
-            print(f"✅ Task cancellation requested: {cancelled}")
+            await task.cancel()
+            print(f"✅ Task cancellation requested: {await task.cancel()}")
         except Exception as e:
             print(f"❌ Error in client disconnected handler: {e}")
             import traceback
