@@ -637,12 +637,12 @@ async def bot(runner_args: RunnerArguments):
             video_out_enabled=True,  # Enable video for HeyGen avatar
             video_out_is_live=True,  # Enable live video for HeyGen avatar
             vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(
-                start_secs=0,
-                stop_secs=1,
-                confidence=0.5,
-                min_volume=0.5
-                )
+                # params=VADParams(
+                # start_secs=0,
+                # stop_secs=1,
+                # confidence=0.5,
+                # min_volume=0.5
+                #)
             ),
         ),
         "webrtc": lambda: TransportParams(
