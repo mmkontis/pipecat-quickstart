@@ -153,6 +153,7 @@ class PipecatRunner:
                         "gpt-5-mini", 
                         "gpt-5-nano",
                         "gpt-4o-mini",
+                        "gpt-4o",
                         "claude-3-5-haiku-latest",
                         "claude-sonnet-4-20250514"
                     ]

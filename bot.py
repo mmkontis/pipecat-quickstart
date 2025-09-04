@@ -343,7 +343,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                 tone = tone_variations[self.consecutive_idle_count - 1]
                 messages.append({
                     "role": "system",
-                    "content": f"Ask the user directly: Are you still there? Use {tone}. Keep it short and natural."
+                    "content": f"Follow up on user, make the convrsation continue with ading a phrase or ask the user directly: Are you still there? Use {tone}. Keep it short and natural."
                 })
                 await task.queue_frames([LLMMessagesUpdateFrame(messages=cast(list, messages), run_llm=True)])
             else:
