@@ -25,6 +25,7 @@ Required environment variables:
 This file is automatically used when heygen_avatar_id is provided via curl.
 """
 
+from datetime import datetime
 import os
 import sys
 import aiohttp
@@ -517,9 +518,41 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     async def on_client_disconnected(transport, client):
         print(f"👋 Client disconnected: {client}")
         logger.info(f"Client disconnected")
+        print(f"👋 Client disconnected: {client}")
+        logger.info(f"Client disconnected")
         try:
-            cancelled = task.cancel()
-            print(f"✅ Task cancellation requested: {cancelled}")
+            # Send full conversation context/transcript to webhook
+            webhook_url = "https://tryhumanlike.com/api/webhook/note"
+            webhook_data = {
+                "client_id": str(client),
+                "disconnect_time": str(datetime.now()),
+                "conversation_context": messages,  # Full transcript/context
+                "bot_name": bot_name,
+                "user_name": user_name,
+                "total_messages": len(messages),
+                "idle_tracker": {
+                    "consecutive_idle_count": idle_tracker.consecutive_idle_count,
+                    "conversation_ended": idle_tracker.conversation_ended,
+                    "continuous_idle_time_seconds": idle_tracker.continuous_idle_time_seconds
+                }
+            }
+
+            try:
+                response = requests.post(
+                    webhook_url,
+                    json=webhook_data,
+                    headers={"Content-Type": "application/json"},
+                    timeout=5  # 5 second timeout
+                )
+                if response.status_code == 200:
+                    print(f"✅ Webhook sent successfully to {webhook_url}")
+                else:
+                    print(f"⚠️ Webhook failed with status {response.status_code}: {response.text}")
+            except Exception as webhook_error:
+                print(f"⚠️ Webhook request failed: {webhook_error}")
+
+            await task.cancel()
+            print(f"✅ Task cancellation requested: {await task.cancel()}")
         except Exception as e:
             print(f"❌ Error in client disconnected handler: {e}")
             import traceback
@@ -598,13 +631,15 @@ async def bot(runner_args: RunnerArguments):
     transport_params = {
         "daily": lambda: DailyParams(
             audio_in_enabled=True,
+            video_out_width=720,
+            video_out_height=480,
             audio_out_enabled=True,
             video_out_enabled=True,  # Enable video for HeyGen avatar
             video_out_is_live=True,  # Enable live video for HeyGen avatar
             vad_analyzer=SileroVADAnalyzer(
                 params=VADParams(
                 start_secs=0,
-                stop_secs=0,
+                stop_secs=1,
                 confidence=0.5,
                 min_volume=0.5
                 )
