@@ -36,6 +36,7 @@ import sys
 import psutil
 import gc
 import requests
+from datetime import datetime
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -442,6 +443,36 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         print(f"👋 Client disconnected: {client}")
         logger.info(f"Client disconnected")
         try:
+            # Send full conversation context/transcript to webhook
+            webhook_url = "https://tryhumanlike.com/api/webhook/note"
+            webhook_data = {
+                "client_id": str(client),
+                "disconnect_time": str(datetime.now()),
+                "conversation_context": messages,  # Full transcript/context
+                "bot_name": bot_name,
+                "user_name": user_name,
+                "total_messages": len(messages),
+                "idle_tracker": {
+                    "consecutive_idle_count": idle_tracker.consecutive_idle_count,
+                    "conversation_ended": idle_tracker.conversation_ended,
+                    "continuous_idle_time_seconds": idle_tracker.continuous_idle_time_seconds
+                }
+            }
+
+            try:
+                response = requests.post(
+                    webhook_url,
+                    json=webhook_data,
+                    headers={"Content-Type": "application/json"},
+                    timeout=5  # 5 second timeout
+                )
+                if response.status_code == 200:
+                    print(f"✅ Webhook sent successfully to {webhook_url}")
+                else:
+                    print(f"⚠️ Webhook failed with status {response.status_code}: {response.text}")
+            except Exception as webhook_error:
+                print(f"⚠️ Webhook request failed: {webhook_error}")
+
             cancelled = task.cancel()
             print(f"✅ Task cancellation requested: {cancelled}")
         except Exception as e:
