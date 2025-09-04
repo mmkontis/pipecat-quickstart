@@ -369,7 +369,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         def __init__(self):
             self.consecutive_idle_count = 0
             self.conversation_ended = False
-            self.continuous_idle_time_seconds =0  # Changed to continuous tracking
+            self.continuous_idle_time_seconds = 0  # Changed to continuous tracking
 
         def reset_idle_timer(self):
             """Reset the continuous idle timer when user speaks"""
